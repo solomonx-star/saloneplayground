@@ -10,6 +10,18 @@ export const TOUCH = {
   baitCooldownMs: 2500,
   baitLengthMs: 700,
   turnsPerTeam: 3,
+  // Sprint for the player you control. Stamina runs from 0 to 1: sprinting uses sprintDrain per second, resting
+  // regains sprintRegen per second, and a new sprint needs at least sprintMinimum.
+  sprintMultiplier: 1.5,
+  sprintDrain: 0.9,
+  sprintRegen: 0.3,
+  sprintMinimum: 0.2,
+  // Scoring: points for each defended line crossed in the direction of the run, and for a safe return home.
+  linePoints: 1,
+  homePoints: 5,
+  // A touch plays out in slow motion for slowMoMs, at slowMoScale of normal speed, before the sides change.
+  slowMoMs: 650,
+  slowMoScale: 0.25,
 };
 
 export type Level = "easy" | "normal" | "hard";

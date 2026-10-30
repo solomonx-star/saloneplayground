@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type PhaserNamespace from "phaser";
-import TouchGame from "@/components/TouchGame";
+import TouchGame from "@/components/touch/TouchGame";
 
 type Status = { text: string; kind: "ready" | "danger" | "success" };
 
