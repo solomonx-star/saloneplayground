@@ -1,6 +1,6 @@
 # Salone Playground
 
-A browser game prototype for Sierra Leonean childhood games, built with Next.js, TypeScript, and Phaser. Balance Ball, Touch, Hide and Seek, Draft, and Marbles are playable.
+A browser game prototype for Sierra Leonean childhood games, built with Next.js, TypeScript, and Phaser. Balance Ball, Touch, Hide and Seek, Draft, Marbles, and Tic Tac To are playable.
 
 ## Run locally
 
@@ -47,6 +47,14 @@ Open `http://localhost:3000`.
 - Play against the computer (Easy, Normal, Hard) or pass the phone between two players.
 - The ground is rough on purpose: a full-power shot rolls about two-thirds of the way across, so marbles are chipped out rather than blasted. In self-play the computer clears about 1, 2 and 3 marbles a turn on Easy, Normal and Hard.
 - Code: tuning in `src/components/marbles/settings.ts`, physics in `marbles/physics.ts`, rules in `marbles/rules.ts`, the computer player (which tries shots out in the physics before taking one) in `marbles/ai.ts`, tests in `marbles/marbles.test.ts`, scene in `marbles/scene.ts`, screen in `MarblesGame.tsx`.
+
+## Tic Tac To
+
+- Classic 3×3: take turns marking squares and get three in a row. Chalk marks are drawn on a slate board and the winning line is chalked through.
+- Play against the computer or two players on one device. The score is kept across rounds (wins and draws), and who goes first swaps every round.
+- Levels: Easy sometimes misses wins and blocks; Normal always takes a win or blocks but still makes mistakes; Hard plays perfectly (full minimax) and can only be held to a draw.
+- Tap or click a square, or use the number keys 1–9 (laid out like a phone keypad, 1 is top left).
+- Code: rules and computer player in `src/components/tictacto/rules.ts`, tests in `tictacto/tictacto.test.ts`, screen in `TicTacToGame.tsx`.
 
 ## Draft
 
