@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Salone Playground — Touch",
-  description: "A home for Sierra Leonean childhood games. Start with Touch.",
+  title: "Salone Playground",
+  description: "A home for Sierra Leonean childhood games. Start with Balance Ball.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
