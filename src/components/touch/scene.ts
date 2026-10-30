@@ -3,7 +3,8 @@ import { chooseOpenLane, moveComputerAttackers } from "./attackers";
 import { chooseComputerTarget, goalOf, moveComputerDefenders, nextTrapLine, projectedX, threatScore, type DefenderIntent } from "./defenders";
 import { clamp, FIELD_H, FIELD_W, HOME_LINE, LINES, MID, START_Y, TOUCH_RADIUS, TURN_LINE, linesCrossed, type Point } from "./field";
 import { LEVELS, TOUCH, type Level } from "./settings";
-import type { TouchSound } from "./sound";
+import { burst, floatText, ripple } from "@/components/effects";
+import type { GameSound } from "@/components/sound";
 import type { World } from "./world";
 
 type Arc = PhaserNamespace.GameObjects.Arc;
@@ -20,7 +21,7 @@ const emit = (name: string, detail?: unknown) => window.dispatchEvent(new Custom
 // Builds the Phaser scene class. Phaser is passed in because it is only loaded in the browser.
 // The React screen talks to the scene through window events: it sends touch-start, touch-count, touch-level,
 // touch-new-match, touch-switch and touch-move, and listens for touch-status, touch-state and touch-match.
-export function createTouchScene(Phaser: typeof PhaserNamespace, input: { current: TouchInput }, sound: TouchSound) {
+export function createTouchScene(Phaser: typeof PhaserNamespace, input: { current: TouchInput }, sound: GameSound) {
   return class TouchField extends Phaser.Scene {
     private runner!: Arc;
     private runnerLabel!: Text;
@@ -287,7 +288,7 @@ export function createTouchScene(Phaser: typeof PhaserNamespace, input: { curren
 
     private onTouch(attacker: Arc, defender: Arc) {
       sound.touch();
-      this.ripple((attacker.x + defender.x) / 2, (attacker.y + defender.y) / 2, 0xffd166);
+      ripple(this, (attacker.x + defender.x) / 2, (attacker.y + defender.y) / 2, 0xffd166);
       this.cameras.main.shake(260, 0.006);
       this.cameras.main.flash(160, 255, 140, 110);
       emit("touch-status", { text: `Touch! The ${defender.getData("name")} caught ${attacker.getData("name")}.`, kind: "danger" });
@@ -310,7 +311,7 @@ export function createTouchScene(Phaser: typeof PhaserNamespace, input: { curren
     private onHome(attacker: Arc) {
       if (this.humanAttacks) { sound.cheer(); this.cameras.main.flash(220, 120, 220, 140); }
       else { sound.lose(); this.cameras.main.flash(220, 240, 150, 110); }
-      this.burst(attacker.x, attacker.y);
+      burst(this, attacker.x, attacker.y);
       this.award(TOUCH.homePoints, attacker.x, attacker.y - 12);
       this.end(this.humanAttacks
         ? `${attacker.getData("name")} made it home! +${TOUCH.homePoints} for your team. Attack again.`
@@ -320,7 +321,7 @@ export function createTouchScene(Phaser: typeof PhaserNamespace, input: { curren
     private award(points: number, x: number, y: number) {
       if (this.humanAttacks) { this.scoreYou += points; sound.point(); } else this.scoreThem += points;
       this.publishMatch();
-      this.floatText(`+${points}`, x, y, this.humanAttacks ? "#d7ec83" : "#ffb59e");
+      floatText(this, `+${points}`, x, y, this.humanAttacks ? "#d7ec83" : "#ffb59e");
     }
 
     private updateSprint(dt: number, moving: boolean) {
@@ -351,27 +352,6 @@ export function createTouchScene(Phaser: typeof PhaserNamespace, input: { curren
         player.setData("vel", length > 0 ? { x: axisX / length, y: axisY / length } : { x: 0, y: 0 });
         if (length > 0) player.setPosition(clamp(player.x + axisX * scale * step, 44, FIELD_W - 44), clamp(player.y + axisY * scale * step, 44, 556));
       }
-    }
-
-    private ripple(x: number, y: number, color: number) {
-      for (const delay of [0, 120]) {
-        const ring = this.add.circle(x, y, 10).setStrokeStyle(3, color).setDepth(8);
-        this.tweens.add({ targets: ring, scale: 4.5, alpha: 0, duration: 600, delay, ease: "Cubic.easeOut", onComplete: () => ring.destroy() });
-      }
-    }
-
-    private burst(x: number, y: number) {
-      const colors = [0xd7ec83, 0xf7e486, 0x69c6ef, 0xffffff];
-      for (let i = 0; i < 14; i++) {
-        const angle = (i / 14) * Math.PI * 2;
-        const dot = this.add.circle(x, y, 4, colors[i % colors.length]).setDepth(8);
-        this.tweens.add({ targets: dot, x: x + Math.cos(angle) * 60, y: y + Math.sin(angle) * 60, alpha: 0, scale: 0.4, duration: 700, ease: "Cubic.easeOut", onComplete: () => dot.destroy() });
-      }
-    }
-
-    private floatText(text: string, x: number, y: number, color: string) {
-      const label = this.add.text(x, y, text, { fontFamily: "Arial", fontSize: "14px", color, fontStyle: "bold", stroke: "#0d2f24", strokeThickness: 3 }).setOrigin(0.5).setDepth(9);
-      this.tweens.add({ targets: label, y: y - 34, alpha: 0, duration: 900, ease: "Cubic.easeOut", onComplete: () => label.destroy() });
     }
 
     // Facing wedges, sprint trails and the stamina bar.

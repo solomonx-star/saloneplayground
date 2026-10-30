@@ -1,5 +1,5 @@
-// Small synthesized sound effects for Touch, made with the Web Audio API so no audio files are needed.
-export class TouchSound {
+// Small synthesized sound effects shared by the games, made with the Web Audio API so no audio files are needed.
+export class GameSound {
   muted = false;
   private ctx: AudioContext | null = null;
   private noise: AudioBuffer | null = null;
@@ -58,6 +58,16 @@ export class TouchSound {
     [523.25, 659.25, 783.99, 1046.5].forEach((frequency, i) => this.tone(ctx, frequency, frequency, t + i * 0.09, 0.14, 0.08, "triangle"));
   }
 
+  // A quick rising rush of air for a thrown ball.
+  whoosh() {
+    const ctx = this.ready(); if (!ctx) return;
+    const t = ctx.currentTime;
+    const filter = ctx.createBiquadFilter(); filter.type = "bandpass"; filter.Q.value = 1.4;
+    filter.frequency.setValueAtTime(500, t); filter.frequency.exponentialRampToValueAtTime(1900, t + 0.18);
+    const gain = this.gain(ctx); this.envelope(gain, t, 0.12, 0.03, 0.17);
+    this.noiseSource(ctx, t, 0.22).connect(filter).connect(gain);
+  }
+
   point() {
     const ctx = this.ready(); if (!ctx) return;
     this.tone(ctx, 880, 1320, ctx.currentTime, 0.12, 0.06, "triangle");
@@ -113,4 +123,4 @@ export class TouchSound {
   }
 }
 
-export const touchSound = new TouchSound();
+export const gameSound = new GameSound();

@@ -14,9 +14,11 @@ Open `http://localhost:3000`.
 ## Current Balance Ball prototype
 
 - A team of three takes turns in the middle, one player at a time, dodging a soft sock ball thrown from the sides. The others wait on the bench.
-- Move the player in the middle with WASD, arrow keys, or the mobile movement pad.
+- Move the player in the middle with WASD, arrow keys, or the joystick on touch screens (a partial push moves slower).
 - The computer throws while you are in the middle. When you are throwing, tap/click the field to aim; the thrower nearest your tap throws.
 - A hit puts that player out and the next one steps in. When all three are out, the teams swap.
+- Feedback: throws whoosh and the thrower pops, balls cast a shadow, a hit shakes the screen and plays in slow motion, close dodges are called out, and a full knockout gets a cheer. While throwing, a faint guide shows the aim from the nearest thrower.
+- Sound and the mute button are shared with Touch (`src/components/sound.ts`); visual effects are in `src/components/effects.ts`.
 - The game shelf opens Balance Ball in a fullscreen play view on desktop and adapts to mobile screens.
 
 ## Touch
@@ -37,7 +39,6 @@ Open `http://localhost:3000`.
 | `attackers.ts` | Computer attacker decisions (when and where to cross) |
 | `defenders.ts` | Computer defender decisions (guard, lunge, bait, Main Line patrol) |
 | `scene.ts` | Phaser scene: match flow, input, scoring, effects and drawing |
-| `sound.ts` | Synthesized sound effects |
 | `TouchGame.tsx`, `HowToPlay.tsx` | React screen, controls and overlays |
 | `ai.test.ts` | Tests for the attacker and defender decisions |
 

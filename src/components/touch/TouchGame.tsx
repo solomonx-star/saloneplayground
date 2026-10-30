@@ -6,18 +6,10 @@ import HowToPlay from "./HowToPlay";
 import { FIELD_H, FIELD_W } from "./field";
 import { createTouchScene, type MatchState, type Notice, type TouchInput } from "./scene";
 import { LEVELS, TOUCH, type Level } from "./settings";
-import { touchSound } from "./sound";
+import { MUTED_KEY, readFlag, writeFlag } from "@/components/preferences";
+import { gameSound } from "@/components/sound";
 
 const HOW_TO_SEEN_KEY = "salone-touch-how-to-seen";
-const MUTED_KEY = "salone-touch-muted";
-
-// Per-viewer preferences; storage can be unavailable (private mode, blocked site data), so every access is guarded.
-function readFlag(key: string) {
-  try { return window.localStorage.getItem(key) === "1"; } catch { return false; }
-}
-function writeFlag(key: string, value: boolean) {
-  try { window.localStorage.setItem(key, value ? "1" : "0"); } catch { /* preference is not saved */ }
-}
 
 export default function TouchGame({ onBack }: { onBack: () => void }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -31,7 +23,7 @@ export default function TouchGame({ onBack }: { onBack: () => void }) {
   const [muted, setMuted] = useState(() => readFlag(MUTED_KEY));
   const inputRef = useRef<TouchInput>({ x: 0, y: 0, sprint: false });
 
-  useEffect(() => { touchSound.muted = muted; }, [muted]);
+  useEffect(() => { gameSound.muted = muted; }, [muted]);
 
   useEffect(() => {
     let disposed = false;
@@ -46,7 +38,7 @@ export default function TouchGame({ onBack }: { onBack: () => void }) {
         width: FIELD_W,
         height: FIELD_H,
         backgroundColor: "#174b38",
-        scene: createTouchScene(Phaser, inputRef, touchSound),
+        scene: createTouchScene(Phaser, inputRef, gameSound),
         scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
         render: { antialias: true },
       });
@@ -67,7 +59,7 @@ export default function TouchGame({ onBack }: { onBack: () => void }) {
     };
   }, []);
 
-  function startGame() { touchSound.unlock(); window.dispatchEvent(new Event("touch-start")); }
+  function startGame() { gameSound.unlock(); window.dispatchEvent(new Event("touch-start")); }
   function backToGames() {
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
     onBack();
@@ -86,7 +78,7 @@ export default function TouchGame({ onBack }: { onBack: () => void }) {
     const next = !muted;
     setMuted(next);
     writeFlag(MUTED_KEY, next);
-    if (!next) touchSound.unlock();
+    if (!next) gameSound.unlock();
   }
 
   const result = match.you > match.them ? "You win!" : match.you < match.them ? "The CPU wins" : "It's a draw";
