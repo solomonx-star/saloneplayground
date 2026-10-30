@@ -1,6 +1,6 @@
 # Salone Playground
 
-A browser game prototype for Sierra Leonean childhood games, built with Next.js, TypeScript, and Phaser. Balance Ball, Touch, Hide and Seek, and Draft are playable.
+A browser game prototype for Sierra Leonean childhood games, built with Next.js, TypeScript, and Phaser. Balance Ball, Touch, Hide and Seek, Draft, and Marbles are playable.
 
 ## Run locally
 
@@ -38,6 +38,15 @@ Open `http://localhost:3000`.
 - Catch everyone before the timer runs out (Easy 90 s, Normal 75 s, Hard 60 s). Anyone still hidden at time up counts as safe. Your best score per level is remembered on this device.
 - Controls: WASD or arrow keys, Shift to sprint (uses stamina). Touch screens get the joystick and a SPRINT button.
 - Code: tuning in `src/components/seek/settings.ts`, hider decisions in `seek/hiders.ts` (tested in `seek/seek.test.ts`), Phaser scene in `seek/scene.ts`, screen in `HideSeekGame.tsx`.
+
+## Marbles (ring game)
+
+- Thirteen marbles start in a cross in the middle of a ring scratched into the dirt. Knock them out of the ring to keep them; most marbles wins (the match ends as soon as one side cannot be caught).
+- Drag your shooter around the ring line to choose where to shoot from, then pull back from it and let go to flick. The further you pull, the harder the shot (power bar under the shooter).
+- Knock a marble out and you shoot again, from where your shooter stopped if it is still inside the ring. Miss and the turn passes.
+- Play against the computer (Easy, Normal, Hard) or pass the phone between two players.
+- The ground is rough on purpose: a full-power shot rolls about two-thirds of the way across, so marbles are chipped out rather than blasted. In self-play the computer clears about 1, 2 and 3 marbles a turn on Easy, Normal and Hard.
+- Code: tuning in `src/components/marbles/settings.ts`, physics in `marbles/physics.ts`, rules in `marbles/rules.ts`, the computer player (which tries shots out in the physics before taking one) in `marbles/ai.ts`, tests in `marbles/marbles.test.ts`, scene in `marbles/scene.ts`, screen in `MarblesGame.tsx`.
 
 ## Draft
 

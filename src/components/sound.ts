@@ -68,6 +68,16 @@ export class GameSound {
     this.noiseSource(ctx, t, 0.22).connect(filter).connect(gain);
   }
 
+  // Glass marbles knocking together; `strength` 0..1 sets the volume.
+  clack(strength = 1) {
+    const ctx = this.ready(); if (!ctx) return;
+    const t = ctx.currentTime;
+    const peak = 0.02 + Math.min(1, strength) * 0.12;
+    const frequency = 2600 + Math.random() * 900;
+    this.tone(ctx, frequency, frequency * 0.9, t, 0.05, peak, "sine");
+    this.tone(ctx, frequency * 1.9, frequency * 1.7, t, 0.03, peak * 0.4, "sine");
+  }
+
   // Soft leaves shaking: a short burst of high, filtered noise.
   rustle() {
     const ctx = this.ready(); if (!ctx) return;

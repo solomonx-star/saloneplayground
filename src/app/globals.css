@@ -31,3 +31,6 @@
 @media(prefers-reduced-motion:reduce){.draft-piece.can{animation:none;box-shadow:inset 0 3px 5px #ffffff55,0 0 0 3px #f4df79cc}}
 @media(max-width:600px){.draft-header>.draft-header-right{flex-direction:row;align-items:center}.draft-actions{flex-wrap:wrap;justify-content:center}.draft-turn{order:-1;width:100%}.draft-header-right .icon-button{width:26px;height:26px;font-size:11px}}
 .draft-square.suggest{box-shadow:inset 0 0 0 3px #8fd3f0;z-index:1}.draft-actions button.draft-stop{background:var(--lime);color:#174b38;border-color:transparent}.draft-actions button.draft-stop:hover{background:#c5df6a}
+@media(min-width:581px){.game-screen .game-stage .game-frame.marbles-frame{width:min(100%,calc(100dvh - 132px));aspect-ratio:1}}
+@media(max-width:580px){.game-screen .game-stage .game-frame.marbles-frame{width:min(100%,calc(100dvh - 190px));aspect-ratio:1}.marbles-frame .notice{max-width:58%}.marbles-screen .game-bottom{display:flex;flex-direction:column;justify-content:center;min-height:64px;gap:4px;text-align:center}}
+.marbles-frame .game-host{touch-action:none}.scoreboard span.turn{color:var(--lime)}.scoreboard span.turn:before{content:"▸ "}
