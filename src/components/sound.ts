@@ -68,6 +68,15 @@ export class GameSound {
     this.noiseSource(ctx, t, 0.22).connect(filter).connect(gain);
   }
 
+  // Soft leaves shaking: a short burst of high, filtered noise.
+  rustle() {
+    const ctx = this.ready(); if (!ctx) return;
+    const t = ctx.currentTime;
+    const filter = ctx.createBiquadFilter(); filter.type = "highpass"; filter.frequency.value = 2600 + Math.random() * 1200;
+    const gain = this.gain(ctx); this.envelope(gain, t, 0.05, 0.02, 0.22);
+    this.noiseSource(ctx, t, 0.26).connect(filter).connect(gain);
+  }
+
   point() {
     const ctx = this.ready(); if (!ctx) return;
     this.tone(ctx, 880, 1320, ctx.currentTime, 0.12, 0.06, "triangle");

@@ -30,6 +30,15 @@ Open `http://localhost:3000`.
 - A how-to-play overlay shows on first visit and from the `?` button. Sound effects are synthesized in the browser (no audio files) and can be muted.
 - Computer defenders show what they are about to do: an orange marker for where they are guarding, LUNGE when they go for a runner, FAKE when they open a gap as bait.
 
+## Hide and Seek (Play Kech)
+
+- You are the seeker. Count at HOME with your eyes closed (the yard goes dark) while five hiders run to the bushes, crates and long grass.
+- Hiders are invisible once hidden. Rustling spots and falling leaves give them away, more often as you get close; on Normal and Hard, empty spots also rustle in the wind as decoys.
+- Get within reach of a hiding spot to spot whoever is inside: they bolt for HOME and you must touch them before they get there. Hiders also sneak home on their own when you wander too far from HOME to win the race.
+- Catch everyone before the timer runs out (Easy 90 s, Normal 75 s, Hard 60 s). Anyone still hidden at time up counts as safe. Your best score per level is remembered on this device.
+- Controls: WASD or arrow keys, Shift to sprint (uses stamina). Touch screens get the joystick and a SPRINT button.
+- Code: tuning in `src/components/seek/settings.ts`, hider decisions in `seek/hiders.ts` (tested in `seek/seek.test.ts`), Phaser scene in `seek/scene.ts`, screen in `HideSeekGame.tsx`.
+
 ## Draft
 
 - 10×10 African checkers board with 20 pieces per side; you play Black and move first.
