@@ -1,6 +1,6 @@
 # Salone Playground
 
-A browser game prototype for Sierra Leonean childhood games, built with Next.js, TypeScript, and Phaser. Two games are playable: Balance Ball and Touch.
+A browser game prototype for Sierra Leonean childhood games, built with Next.js, TypeScript, and Phaser. Balance Ball, Touch, Hide and Seek, and Draft are playable.
 
 ## Run locally
 
@@ -29,6 +29,17 @@ Open `http://localhost:3000`.
 - Controls: WASD or arrow keys to move, Shift to sprint (uses stamina), Space to switch player, or tap a player. Touch screens get a joystick plus SPRINT and SWITCH buttons.
 - A how-to-play overlay shows on first visit and from the `?` button. Sound effects are synthesized in the browser (no audio files) and can be muted.
 - Computer defenders show what they are about to do: an orange marker for where they are guarding, LUNGE when they go for a runner, FAKE when they open a gap as bait.
+
+## Draft
+
+- 10×10 African checkers board with 20 pieces per side; you play Black and move first.
+- Capturing is optional, as it is played locally: leaving a piece en prise is how players set traps. A capture chain uses one piece and may stop after any jump (STOP HERE). Men move forward and capture in either direction; kings fly along open diagonals.
+- The stricter rule (captures compulsory, chains run to the end) is still available in `legalTurns` via `forceCapture`.
+- Captured pieces come off at the end of the turn, so a piece cannot be jumped twice. A man is crowned only if its turn ends on the far row.
+- 25 king moves each without a capture is a draw.
+- The computer searches ahead with minimax (Easy 1 turn with mistakes, Normal 3 turns, Hard 4 turns). It may decline a capture that walks into a trap. The level can be changed mid-game.
+- Suggestions, not orders: pieces that can capture glow, HINT marks a recommended move (which may be to decline a capture), the last move is highlighted, and UNDO takes back your last turn or cancels an unfinished chain.
+- Code: rules in `src/components/draft/rules.ts`, computer player in `draft/ai.ts`, tests in `draft/draft.test.ts`, screen in `DraftGame.tsx`.
 
 ### Code layout (`src/components/touch/`)
 
