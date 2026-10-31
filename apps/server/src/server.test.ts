@@ -258,3 +258,51 @@ describe("Ludo rooms", () => {
     expect(played).toBeDefined();
   });
 });
+
+describe("party rooms", () => {
+  it("keeps every seat for the phones, while the shared screen hosts without one", async () => {
+    const table = await connect("Table");
+    const phone = await connect("Fatmata");
+    const room = await call<RoomView<Match>>(table.socket, EVENTS.create, { game: "tintanto", party: true });
+    expect(room.party).toBe(true);
+    expect(room.seats.every((s) => !s.guestId)).toBe(true);
+    const joined = await call<RoomView<Match>>(phone.socket, EVENTS.join, { code: room.code });
+    expect(joined.seats[0]).toMatchObject({ guestId: phone.guest.guestId, name: "Fatmata" });
+
+    // The shared screen reconnects (say the TV slept) and comes back as host, still without a seat.
+    table.socket.disconnect();
+    const again = await connect("Table", table.guest);
+    const back = await call<RoomView<Match>>(again.socket, EVENTS.join, { code: room.code });
+    expect(back.hostId).toBe(table.guest.guestId);
+    expect(back.seats.some((s) => s.guestId === table.guest.guestId)).toBe(false);
+
+    await call(again.socket, EVENTS.addCpu, { seat: 1, level: "easy" });
+    await call(again.socket, EVENTS.start);
+    expect(await refused(again.socket, EVENTS.act, { action: { type: "move", move: { from: 7, to: 4 } } })).toMatch(/not your turn/);
+  });
+
+  it("lets the shared screen start the next round, and closes the room for everyone when it leaves", async () => {
+    const table = await connect("Table");
+    const phone = await connect("Ibrahim");
+    const room = await call<RoomView<Match>>(table.socket, EVENTS.create, { game: "tintanto", party: true });
+    await call(phone.socket, EVENTS.join, { code: room.code });
+    await call(table.socket, EVENTS.addCpu, { seat: 1, level: "easy" });
+    let view = await call<RoomView<Match>>(table.socket, EVENTS.start);
+    for (let i = 0; i < 80 && !view.match?.result; i++) {
+      if (view.match!.toMove === "X") view = await call<RoomView<Match>>(phone.socket, EVENTS.act, { action: { type: "move", move: chooseMove(view.match!.board, "X", "hard") } });
+      else view = await until(phone.updates, (v) => v.version > view.version);
+    }
+    const next = await call<RoomView<Match>>(table.socket, EVENTS.act, { action: { type: "next" } });
+    expect(next.match?.result).toBeNull();
+
+    await call(table.socket, EVENTS.leave);
+    await until(phone.updates, (v) => v.status === "closed");
+    expect((await savedRoom(room.code)).doc).toBeNull();
+  });
+
+  it("tells a screen on this computer its local network addresses", async () => {
+    const answer = await (await fetch(`${url}/network`)).json() as { addresses: string[] };
+    expect(Array.isArray(answer.addresses)).toBe(true);
+    for (const address of answer.addresses) expect(address).toMatch(/^(10|172|192)\./);
+  });
+});

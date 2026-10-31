@@ -8,7 +8,7 @@ import TinTanToOnline from "@/components/tintanto/TinTanToOnline";
 import { applyMove, newMatch, nextRound, restartRound, type Match } from "@salone/games/tintanto/match";
 import { chooseMove, DRAW_RULES, LEVELS, NEIGHBOURS, type Level, type Mark, type Move } from "@salone/games/tintanto/rules";
 
-type Mode = "cpu" | "friend" | "online";
+type Mode = "cpu" | "friend" | "online" | "party";
 // Against the computer you are X (blue, bottom row) and the computer is O (orange, top row). Who moves first
 // swaps every round.
 const CPU_MARK: Mark = "O";
@@ -31,12 +31,12 @@ function reducer(state: State, action: Action): State {
 
 export default function TinTanToGame({ onBack }: { onBack: () => void }) {
   const [mode, setMode] = useState<Mode>("cpu");
-  if (mode === "online") return <TinTanToOnline onBack={onBack} onLocal={() => setMode("cpu")} />;
+  if (mode === "online" || mode === "party") return <TinTanToOnline mode={mode} onBack={onBack} onLocal={() => setMode("cpu")} />;
   return <LocalGame mode={mode} onMode={setMode} onBack={onBack} />;
 }
 
 // Tin Tan To on one device: against the computer, or two players taking turns.
-function LocalGame({ mode, onMode, onBack }: { mode: Exclude<Mode, "online">; onMode: (mode: Mode) => void; onBack: () => void }) {
+function LocalGame({ mode, onMode, onBack }: { mode: Exclude<Mode, "online" | "party">; onMode: (mode: Mode) => void; onBack: () => void }) {
   const [state, dispatch] = useReducer(reducer, undefined, fresh);
   const [level, setLevel] = useState<Level>("normal");
   // Tin Tan To only renders after a click, so storage can be read during the first render.
@@ -114,7 +114,7 @@ function LocalGame({ mode, onMode, onBack }: { mode: Exclude<Mode, "online">; on
       <div className={`draft-message ${result ? "finished" : ""}`} role="status">{message}</div>
       <div className="draft-actions">
         <div className="draft-buttons">
-          <label className="player-select"><span className="select-label">PLAY</span> <select value={mode} onChange={(e) => changeMode(e.target.value as Mode)}><option value="cpu">vs CPU</option><option value="friend">2 players</option><option value="online">Online</option></select></label>
+          <label className="player-select"><span className="select-label">PLAY</span> <select value={mode} onChange={(e) => changeMode(e.target.value as Mode)}><option value="cpu">vs CPU</option><option value="friend">2 players</option><option value="online">Online</option><option value="party">Party (TV + phones)</option></select></label>
           {mode === "cpu" && <label className="player-select"><span className="select-label">LEVEL</span> <select value={level} onChange={(e) => setLevel(e.target.value as Level)}>{(Object.keys(LEVELS) as Level[]).map((key) => <option key={key} value={key}>{LEVELS[key].label}</option>)}</select></label>}
         </div>
         <span className="draft-turn">{result ? "ROUND OVER" : `${name(toMove).toUpperCase()} · ${colour(toMove).toUpperCase()}`}</span>

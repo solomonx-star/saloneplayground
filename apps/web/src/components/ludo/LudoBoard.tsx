@@ -19,6 +19,14 @@ const PIPS: Record<number, [number, number][]> = {
   5: [[1, 1], [1, 3], [2, 2], [3, 1], [3, 3]], 6: [[1, 1], [1, 3], [2, 1], [2, 3], [3, 1], [3, 3]],
 };
 export const title = (colour: Colour) => colour[0].toUpperCase() + colour.slice(1);
+
+// One die on its own (for a phone in party play), with the border in the colour of the player to move.
+export function DieFace({ value, colour, rolling = false }: { value: number; colour: Colour; rolling?: boolean }) {
+  return <svg className={`ludo-die-face${rolling ? " tumbling" : ""}`} viewBox="0 0 40 40" role="img" aria-label={`Die showing ${value}`}>
+    <rect x="2" y="2" width="36" height="36" rx="7" fill="#fffaf0" stroke={COLOUR_HEX[colour].fill} strokeWidth="3" />
+    {PIPS[value].map(([r, c]) => <circle key={`${r}${c}`} cx={20 + (c - 2) * 8.5} cy={20 + (r - 2) * 8.5} r="3.6" fill="#23302a" />)}
+  </svg>;
+}
 const centre = ([r, c]: Cell) => ({ x: (c + 0.5) * CELL, y: (r + 0.5) * CELL });
 
 type BoardProps = {

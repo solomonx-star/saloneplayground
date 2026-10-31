@@ -3,31 +3,36 @@
 import { useEffect, useState } from "react";
 import { MUTED_KEY, readFlag, writeFlag } from "@/components/preferences";
 import { gameSound as sound } from "@/components/sound";
-import LudoBoard, { title } from "@/components/ludo/LudoBoard";
+import LudoBoard, { DieFace, title } from "@/components/ludo/LudoBoard";
+import { describePlay } from "@/components/ludo/describePlay";
 import RuleChips from "@/components/ludo/RuleChips";
 import TurnClock from "@/components/ludo/TurnClock";
 import { useLudoControls } from "@/components/ludo/useLudoControls";
 import { usePlayback } from "@/components/ludo/usePlayback";
 import { OnlineEntry, OnlineNotices, RoomCode } from "@/online/OnlineEntry";
-import { useRoom, type OnlineRoom } from "@/online/useRoom";
+import { PartyJoin, PartyStart } from "@/online/PartyJoin";
+import { useRoom, type OnlineMode, type OnlineRoom } from "@/online/useRoom";
 import { COLOUR_HEX } from "@salone/games/ludo/board";
 import { canRoll, type LudoEvent, type LudoMatch } from "@salone/games/ludo/match";
 import { current, LEVELS, NO_RULES, plays, seatsFor, TURN_SECONDS, type Colour, type Level, type Play, type Rule } from "@salone/games/ludo/rules";
 import type { LudoOptions } from "@salone/games/online/games";
 import type { RoomView } from "@salone/games/online/protocol";
 
-// Ludo online: each player on their own device. The host picks the number of players and the house rules, friends
-// join with the room code, and empty seats can go to computer players. The game server rolls the dice and runs the
-// house rules and the turn timer; this screen shows its moves the way Ludo on one device does.
+// Ludo with other people's devices (see OnlineMode). The host picks the number of players and the house rules,
+// friends join with the room code, and empty seats can go to computer players. The game server rolls the dice and
+// runs the house rules and the turn timer; the screens show its moves the way Ludo on one device does. In party play
+// the shared screen shows the board for everyone and each phone is its player's controller: the dice, a Roll button
+// and the moves it can make, with the board a tap away.
 
 type Room = RoomView<LudoMatch, LudoOptions>;
 type Online = OnlineRoom<LudoMatch, LudoOptions>;
 
-export default function LudoOnline({ onBack, onLocal }: { onBack: () => void; onLocal: () => void }) {
-  const online = useRoom<LudoMatch, LudoOptions>("ludo");
+export default function LudoOnline({ onBack, onLocal, mode = "online", joinCode }: { onBack: () => void; onLocal: () => void; mode?: OnlineMode; joinCode?: string }) {
+  const online = useRoom<LudoMatch, LudoOptions>("ludo", joinCode);
   // The settings for a room this player creates.
   const [setup, setSetup] = useState<LudoOptions>({ players: 4, rules: NO_RULES });
-  // This screen only renders after a click, so storage can be read during the first render.
+  // This screen only renders in the browser, after a click or on the join page, so storage can be read during the
+  // first render.
   const [muted, setMuted] = useState(() => readFlag(MUTED_KEY));
   const { room, guest } = online;
   const me = guest?.guestId ?? "";
@@ -38,10 +43,10 @@ export default function LudoOnline({ onBack, onLocal }: { onBack: () => void; on
   function backToGames() { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); onBack(); }
 
   const game = room?.match?.game;
-  return <main className="draft-screen ludo-screen">
+  return <main className={`draft-screen ludo-screen${mode === "party" && room ? " party-screen" : ""}${mode === "phone" ? " phone-screen" : ""}`}>
     <header className="draft-header">
       <button className="back-button" onClick={backToGames}>← <span>GAMES</span></button>
-      <div><strong>LUDO</strong><small>ONLINE{room ? ` · ROOM ${room.code}` : ""}</small></div>
+      <div><strong>LUDO</strong><small>{mode === "online" ? "ONLINE" : "PARTY"}{room ? ` · ROOM ${room.code}` : ""}</small></div>
       <div className="draft-header-right">
         <button className="icon-button" onClick={toggleMuted} aria-label={muted ? "Turn sound on" : "Turn sound off"} aria-pressed={!muted}>{muted ? "🔇" : "🔊"}</button>
         {game && <span className="draft-count">{game.seats.map((c) => `${title(c).toUpperCase()} ${game.tokens[c].filter((t) => t.where === "home").length}/${game.tokens[c].length}`).join(" · ")}</span>}
@@ -50,11 +55,20 @@ export default function LudoOnline({ onBack, onLocal }: { onBack: () => void; on
     <section className="draft-content ludo-content">
       <OnlineNotices connection={online.connection} error={online.error} onDismiss={online.clearError} />
       {!room
-        ? <OnlineEntry title="Ludo with friends anywhere." blurb="Choose the players and house rules, create a room and share its code — or join a friend's room with theirs. No sign-up, just a name."
-          connection={online.connection} onCreate={(name) => void online.create(name, setup)} onJoin={(name, code) => void online.join(name, code)} onLocal={onLocal}>
-          <Players value={setup.players} onChange={(players) => setSetup({ ...setup, players })} />
-          <RuleChips rules={setup.rules} onToggle={(rule) => setSetup({ ...setup, rules: { ...setup.rules, [rule]: !setup.rules[rule] } })} />
-        </OnlineEntry>
+        ? mode === "party"
+          ? <PartyStart title="Ludo on the big screen." blurb="This screen shows the board for everyone. Players join on their phones by scanning the code and play from there; empty seats can go to the computer."
+            connection={online.connection} onStart={() => void online.create("Party screen", setup, true)} onLocal={onLocal}>
+            <Players value={setup.players} onChange={(players) => setSetup({ ...setup, players })} />
+            <RuleChips rules={setup.rules} onToggle={(rule) => setSetup({ ...setup, rules: { ...setup.rules, [rule]: !setup.rules[rule] } })} />
+          </PartyStart>
+          : joinCode
+            ? <OnlineEntry title="Join the game." blurb="Enter your name to take a seat. You will play on this phone while the big screen shows the board."
+              joinCode={joinCode} connection={online.connection} onCreate={() => undefined} onJoin={(name, code) => void online.join(name, code)} onLocal={onLocal} />
+            : <OnlineEntry title="Ludo with friends anywhere." blurb="Choose the players and house rules, create a room and share its code — or join a friend's room with theirs. No sign-up, just a name."
+              connection={online.connection} onCreate={(name) => void online.create(name, setup)} onJoin={(name, code) => void online.join(name, code)} onLocal={onLocal}>
+              <Players value={setup.players} onChange={(players) => setSetup({ ...setup, players })} />
+              <RuleChips rules={setup.rules} onToggle={(rule) => setSetup({ ...setup, rules: { ...setup.rules, [rule]: !setup.rules[rule] } })} />
+            </OnlineEntry>
         : room.status === "lobby" || !room.match
           ? <Lobby room={room} me={me} online={online} />
           : <Table key={room.code} room={room} me={me} online={online} />}
@@ -66,8 +80,8 @@ function Players({ value, onChange }: { value: number; onChange?: (players: numb
   return <label className="player-select ludo-players"><span className="select-label">PLAYERS</span> <select value={value} disabled={!onChange} onChange={(e) => onChange?.(Number(e.target.value))}>{[2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>;
 }
 
-// The room before the game: its code to share, the seats with their colours, and (for the host) the players, house
-// rules, computer players and Start.
+// The room before the game: how to join (the code, or on the party screen the QR code too), the seats with their
+// colours, and (for the host) the players, house rules, computer players and Start.
 function Lobby({ room, me, online }: { room: Room; me: string; online: Online }) {
   const [level, setLevel] = useState<Level>("normal");
   const host = room.hostId === me;
@@ -75,7 +89,7 @@ function Lobby({ room, me, online }: { room: Room; me: string; online: Online })
   const full = room.seats.every((s) => s.guestId || s.cpu);
   const toggle = (rule: Rule) => void online.setOptions({ rules: { ...room.options.rules, [rule]: !room.options.rules[rule] } });
   return <div className="online-panel">
-    <RoomCode code={room.code} />
+    {room.party && host ? <PartyJoin code={room.code} game="ludo" /> : <RoomCode code={room.code} />}
     <ol className="online-seats">
       {room.seats.map((seat, i) => <li key={i} className={seat.guestId || seat.cpu ? "taken" : ""}>
         <span className="online-mark" style={{ background: COLOUR_HEX[colours[i]].fill, borderColor: "#fff" }} aria-hidden="true" />
@@ -94,7 +108,7 @@ function Lobby({ room, me, online }: { room: Room; me: string; online: Online })
         {host && <label className="player-select"><span className="select-label">COMPUTER</span> <select value={level} onChange={(e) => setLevel(e.target.value as Level)}>{(Object.keys(LEVELS) as Level[]).map((key) => <option key={key} value={key}>{LEVELS[key].label}</option>)}</select></label>}
       </div>
       <div className="draft-buttons">
-        <button onClick={() => void online.leave()}>LEAVE ROOM</button>
+        <button onClick={() => void online.leave()}>{room.party && host ? "END PARTY" : "LEAVE ROOM"}</button>
         {host ? <button className="draft-stop" disabled={!full} onClick={() => void online.start()}>START GAME</button> : <span className="draft-turn">WAITING FOR THE HOST TO START</span>}
       </div>
     </div>
@@ -102,9 +116,13 @@ function Lobby({ room, me, online }: { room: Room; me: string; online: Online })
 }
 
 // The game: the board as the server last left it, played back move by move. You can roll and move only on your
-// own turn, once the screen has caught up.
+// own turn, once the screen has caught up. The party screen (no seat) only shows the game; a phone in party play
+// shows its player's controls, with the board a tap away.
 function Table({ room, me, online }: { room: Room; me: string; online: Online }) {
   const seat = room.seats.findIndex((s) => s.guestId === me);
+  const partyHost = room.party && room.hostId === me;
+  const phone = room.party && seat >= 0;
+  const [showBoard, setShowBoard] = useState(false);
   const nameOf = (colour: Colour, match: LudoMatch) => {
     const index = match.game.seats.indexOf(colour);
     return index === seat ? "You" : room.seats[index]?.name || title(colour);
@@ -166,7 +184,7 @@ function Table({ room, me, online }: { room: Room; me: string; online: Online })
   const away = !game.winner && !room.seats[game.turn]?.connected;
   const status = game.winner ? "GAME OVER" : `${name(turn).toUpperCase()} · ${rolling ? "ROLLING" : moving ? "MOVING" : canRoll(match) ? "TO ROLL" : "TO MOVE"}${away ? " · AWAY" : ""}`;
   const prompt = game.winner ? notice
-    : seat < 0 ? `${notice} You are watching this game.`
+    : seat < 0 ? (partyHost ? notice : `${notice} You are watching this game.`)
       : !myTurn ? `${notice} Waiting for ${name(turn)}…`
         : behind ? notice
           : canRollNow ? `${notice} Your roll — tap the dice.`
@@ -175,20 +193,55 @@ function Table({ room, me, online }: { room: Room; me: string; online: Online })
                 : options.length > 1 ? `${notice} Tap a glowing token to move it ${game.dice[die]}.${choosers.size ? " A red-ringed token can capture backward — tap it to see its lines of play." : ""}`
                   : notice;
   const timer = room.timer && !behind ? room.timer : null;
+  const clock = timer && <TurnClock key={`${room.version}`} endsAt={online.receivedAt + timer.endsIn} seconds={TURN_SECONDS}
+    label={timer.reason === "away" ? `${name(game.seats[timer.seat])} is away — playing for them in` : timer.seat === seat ? "Your time:" : `${name(game.seats[timer.seat])}'s time:`} />;
+  const rematch = game.winner && (seat >= 0 || partyHost) && <button className="draft-stop" onClick={() => void online.act({ type: "rematch" })}>PLAY AGAIN</button>;
+  const board = <LudoBoard game={game} pair={pair} rolling={rolling} moving={moving} controls={controls} human={ready} busy={behind || !!game.winner} onRoll={roll} onPick={pick} labels={labels} />;
+
+  if (phone) {
+    const colour = game.seats[seat];
+    const home = game.tokens[colour].filter((t) => t.where === "home").length;
+    const say = game.winner ? notice
+      : !myTurn ? `${notice} Waiting for ${name(turn)}…`
+        : behind ? notice
+          : canRollNow ? `${notice} Your turn — roll the dice.`
+            : options.length ? `${notice} Choose your move.`
+              : notice;
+    return <div className="ludo-phone">
+      <div className="ludo-phone-me" style={{ background: COLOUR_HEX[colour].fill, color: colour === "yellow" ? "#3a3200" : "#fff" }}>
+        <strong>{room.seats[seat].name}</strong><small>PLAYER {seat + 1} · {colour.toUpperCase()} · {home}/{game.tokens[colour].length} HOME</small>
+      </div>
+      <div className="ludo-turn">{status}</div>
+      <div className="ludo-phone-dice">{pair.map((value, i) => <DieFace key={i} value={value} colour={turn} rolling={rolling} />)}</div>
+      {canRollNow && <button className="ludo-roll ludo-phone-roll" onClick={roll} style={{ background: COLOUR_HEX[colour].fill, color: colour === "yellow" ? "#3a3200" : "#fff" }}>ROLL DICE</button>}
+      {options.length > 0 && <ul className="ludo-options" aria-label="Your moves">
+        {options.map((p) => <li key={`${p.token}-${p.die}-${p.back ? "back" : "on"}`}>
+          <button className={p.back ? "back" : ""} onClick={() => pick(p)}><DieFace value={game.dice[p.die]} colour={colour} /><span>{describePlay(game, p, name)}</span></button>
+        </li>)}
+      </ul>}
+      <div className={`draft-message ${game.winner ? "finished" : ""}`} role="status">{say.trim() || " "}</div>
+      {clock}
+      <div className="draft-buttons ludo-phone-actions">
+        <button onClick={() => setShowBoard(!showBoard)}>{showBoard ? "HIDE THE BOARD" : "SHOW THE BOARD"}</button>
+        <button onClick={() => void online.leave()}>LEAVE GAME</button>
+        {rematch}
+      </div>
+      {showBoard && board}
+    </div>;
+  }
 
   return <>
-    <LudoBoard game={game} pair={pair} rolling={rolling} moving={moving} controls={controls} human={ready} busy={behind || !!game.winner} onRoll={roll} onPick={pick} labels={labels} />
+    {board}
     <div className="ludo-panel">
-      <button className="ludo-roll" onClick={roll} disabled={!canRollNow} style={{ background: canRollNow ? COLOUR_HEX[turn].fill : undefined }}>{rolling ? "ROLLING…" : "ROLL DICE"}</button>
+      {!partyHost && <button className="ludo-roll" onClick={roll} disabled={!canRollNow} style={{ background: canRollNow ? COLOUR_HEX[turn].fill : undefined }}>{rolling ? "ROLLING…" : "ROLL DICE"}</button>}
       <div className="ludo-turn" style={{ color: COLOUR_HEX[turn].light }}>{status}</div>
       <div className={`draft-message ${game.winner ? "finished" : ""}`} role="status">{prompt.trim() || " "}</div>
-      {timer && <TurnClock key={`${room.version}`} endsAt={online.receivedAt + timer.endsIn} seconds={TURN_SECONDS}
-        label={timer.reason === "away" ? `${name(game.seats[timer.seat])} is away — playing for them in` : timer.seat === seat ? "Your time:" : `${name(game.seats[timer.seat])}'s time:`} />}
+      {clock}
     </div>
     <RuleChips rules={game.rules} />
     <div className="draft-actions">
-      <div className="draft-buttons"><button onClick={() => void online.leave()}>LEAVE GAME</button></div>
-      <div className="draft-buttons">{game.winner && seat >= 0 && <button className="draft-stop" onClick={() => void online.act({ type: "rematch" })}>PLAY AGAIN</button>}</div>
+      <div className="draft-buttons"><button onClick={() => void online.leave()}>{partyHost ? "END PARTY" : "LEAVE GAME"}</button></div>
+      <div className="draft-buttons">{rematch}</div>
     </div>
   </>;
 }

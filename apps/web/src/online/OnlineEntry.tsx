@@ -25,26 +25,29 @@ type EntryProps = {
   connection: Connection;
   // Extra settings shown above the Create button (for example Ludo's players and house rules).
   children?: ReactNode;
+  // A phone that opened a party's join link: the code is filled in and there is no Create button.
+  joinCode?: string;
   onCreate: (name: string) => void;
   onJoin: (name: string, code: string) => void;
   onLocal: () => void;
 };
 
-export function OnlineEntry({ title, blurb, connection, children, onCreate, onJoin, onLocal }: EntryProps) {
-  // This screen only renders after a click, so storage can be read during the first render.
+export function OnlineEntry({ title, blurb, connection, children, joinCode, onCreate, onJoin, onLocal }: EntryProps) {
+  // This screen only renders after a click (or on the join page, in the browser only), so storage can be read during
+  // the first render.
   const [name, setName] = useState(savedName);
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(joinCode ?? "");
   const online = connection === "online";
   return <div className="online-panel">
     <div className="draft-intro"><p className="eyebrow">PLAY ONLINE</p><h1>{title}</h1><p>{blurb}</p></div>
     <label className="online-field"><span>YOUR NAME</span><input value={name} maxLength={MAX_NAME} onChange={(e) => setName(e.target.value)} placeholder="e.g. Aminata" autoComplete="nickname" /></label>
     {children}
-    <button className="draft-stop online-big" disabled={!online} onClick={() => onCreate(name)}>CREATE A ROOM</button>
+    {!joinCode && <button className="draft-stop online-big" disabled={!online} onClick={() => onCreate(name)}>CREATE A ROOM</button>}
     <form className="online-join" onSubmit={(e) => { e.preventDefault(); onJoin(name, code); }}>
-      <label className="online-field"><span>OR JOIN WITH A CODE</span><input value={code} maxLength={4} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))} placeholder="ABCD" autoCapitalize="characters" autoComplete="off" spellCheck={false} /></label>
+      <label className="online-field"><span>{joinCode ? "ROOM CODE" : "OR JOIN WITH A CODE"}</span><input value={code} maxLength={4} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))} placeholder="ABCD" autoCapitalize="characters" autoComplete="off" spellCheck={false} /></label>
       <button type="submit" disabled={!online || !ROOM_CODE.test(code)}>JOIN</button>
     </form>
-    <button className="online-link" onClick={onLocal}>← Play on this device instead</button>
+    <button className="online-link" onClick={onLocal}>{joinCode ? "← All the games" : "← Play on this device instead"}</button>
   </div>;
 }
 

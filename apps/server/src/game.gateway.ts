@@ -48,7 +48,7 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
     return reply(async () => {
       const guest = this.guest(socket);
       await this.leaveRoom(socket);
-      const view = await this.rooms.create(guest, body?.game, body?.options, socket.id);
+      const view = await this.rooms.create(guest, body?.game, body?.options, body?.party, socket.id);
       await this.enter(socket, view.code);
       return view;
     });

@@ -11,7 +11,7 @@ import { useLudoControls } from "@/components/ludo/useLudoControls";
 import { cellOf, COLOUR_HEX } from "@salone/games/ludo/board";
 import { chooseMove, current, LEVELS, NO_RULES, newGame, pathOf, play as makeMove, plays, rolled, RULES, skip, TURN_SECONDS, type Colour, type Game, type Level, type Play, type Rule, type Rules } from "@salone/games/ludo/rules";
 
-type Opponents = "cpu" | "friends" | "online";
+type Opponents = "cpu" | "friends" | "online" | "party";
 
 const STEP_MS = 130;
 const CPU_ROLL_MS = 650;
@@ -26,12 +26,12 @@ const face = () => 1 + Math.floor(Math.random() * 6);
 
 export default function LudoGame({ onBack }: { onBack: () => void }) {
   const [opponents, setOpponents] = useState<Opponents>("cpu");
-  if (opponents === "online") return <LudoOnline onBack={onBack} onLocal={() => setOpponents("cpu")} />;
+  if (opponents === "online" || opponents === "party") return <LudoOnline mode={opponents} onBack={onBack} onLocal={() => setOpponents("cpu")} />;
   return <LocalLudo opponents={opponents} onOpponents={setOpponents} onBack={onBack} />;
 }
 
 // Ludo on one device: against the computer, or friends passing the device round.
-function LocalLudo({ opponents, onOpponents, onBack }: { opponents: Exclude<Opponents, "online">; onOpponents: (value: Opponents) => void; onBack: () => void }) {
+function LocalLudo({ opponents, onOpponents, onBack }: { opponents: Exclude<Opponents, "online" | "party">; onOpponents: (value: Opponents) => void; onBack: () => void }) {
   const [rules, setRules] = useState<Rules>(NO_RULES);
   const [players, setPlayers] = useState(4);
   const [level, setLevel] = useState<Level>("normal");
@@ -220,7 +220,7 @@ function LocalLudo({ opponents, onOpponents, onBack }: { opponents: Exclude<Oppo
       <div className="draft-actions">
         <div className="draft-buttons">
           <label className="player-select"><span className="select-label">PLAYERS</span> <select value={players} onChange={(e) => changePlayers(Number(e.target.value))}>{[2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
-          <label className="player-select"><span className="select-label">PLAY</span> <select value={opponents} onChange={(e) => changeOpponents(e.target.value as Opponents)}><option value="cpu">vs CPU</option><option value="friends">Pass and play</option><option value="online">Online</option></select></label>
+          <label className="player-select"><span className="select-label">PLAY</span> <select value={opponents} onChange={(e) => changeOpponents(e.target.value as Opponents)}><option value="cpu">vs CPU</option><option value="friends">Pass and play</option><option value="online">Online</option><option value="party">Party (TV + phones)</option></select></label>
         </div>
         <div className="draft-buttons">
           {opponents === "cpu" && <label className="player-select"><span className="select-label">LEVEL</span> <select value={level} onChange={(e) => setLevel(e.target.value as Level)}>{(Object.keys(LEVELS) as Level[]).map((key) => <option key={key} value={key}>{LEVELS[key].label}</option>)}</select></label>}

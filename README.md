@@ -19,7 +19,15 @@ The game server (for online play) needs a MongoDB database. Copy `apps/server/.e
 - The game server checks every move with the same rules as the one-device game, saves each room to MongoDB after every change (so a restart carries on where it was) and records every finished round. A player whose connection drops keeps their seat and is shown as away; reloading the page rejoins the room. Leaving a game hands your seat to a computer player. Rooms are deleted 12 hours after their last change.
 - Phones on the same Wi-Fi can play too: open the web app at this computer's network address (for example `http://192.168.1.20:3000`); the page finds the game server on port 4000 of the same address. Set `NEXT_PUBLIC_GAME_SERVER_URL` to use a server elsewhere.
 - Ludo can be played online too: choose **Online** in its PLAY menu. Before creating a room (or in the lobby, as host) choose 2–4 players and any of the six house rules; everyone else sees the rules but cannot change them. Friends join with the code and empty seats can go to computer players. The game server rolls the dice and runs the house rules, the Turn Timer and the computer players; every screen plays each roll and move back with the same animations as Ludo on one device, with players' names in their yards. If a player is away (disconnected) on their turn, the game plays for them after 30 seconds while someone else is still connected. When the game is won, PLAY AGAIN starts a rematch with the same settings.
-- Coming next: Draft online, and party play (one shared screen showing the board, phones as controllers).
+- Coming next: Draft online.
+
+## Party play (version 2)
+
+- One shared screen (a TV or laptop) shows the game for everyone; each player plays on their own phone. In Ludo or Tin Tan To choose **Party (TV + phones)** in the PLAY menu and START A PARTY (for Ludo, choose the players and house rules first).
+- The shared screen shows a QR code, the join link and the room code. Phones scan the code (or open the link) to reach `/join`, enter a name and JOIN — no app or sign-up. The shared screen hosts without taking a seat: it adds computer players, changes the settings, starts the game, starts the next round or a rematch, and END PARTY closes the room for everyone.
+- During the game the shared screen shows the board with every player's name. In Ludo each phone is its player's controller: the dice, a big ROLL DICE button and the moves it can make written out ("Token 2 · 5 forward · captures Musa"), with SHOW THE BOARD for a closer look. In Tin Tan To each phone shows the board from that player's side.
+- On the same Wi-Fi: open the shared screen at this computer's network address or at `localhost` — the join link always uses the network address (the game server tells it), since phones cannot reach `localhost`. In development the web app accepts phones from the private network ranges (`allowedDevOrigins` in `apps/web/next.config.ts`); Windows may ask to allow Node through the firewall the first time.
+- Code: `apps/web/src/online/PartyJoin.tsx` (QR code, join link, Start a party), the join page `apps/web/src/app/join/page.tsx` with `components/JoinScreen.tsx`, and `ludo/describePlay.ts` (moves in words for the phone). The game screens take a mode (`online`, `party`, `phone`); the server's party rooms are in `apps/server/src/rooms.service.ts`.
 
 ## Project layout
 

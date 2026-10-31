@@ -2,7 +2,8 @@
 // room's state as a RoomView after every change; screens send requests and get a Reply back.
 
 export type GameId = "tintanto" | "ludo";
-export type RoomStatus = "lobby" | "playing";
+// A closed room has ended for good (its party screen left); screens drop it when they see that.
+export type RoomStatus = "lobby" | "playing" | "closed";
 
 // A seat at the table: a guest, a computer player, or empty (no guestId and not cpu).
 export type Seat = { guestId: string | null; name: string; cpu: boolean; level: string; connected: boolean };
@@ -13,6 +14,9 @@ export type RoomView<M = unknown, O = unknown> = {
   hostId: string;
   seats: Seat[];
   status: RoomStatus;
+  // Party play: the host is a shared screen (a TV or laptop) that shows the board and runs the room without a seat;
+  // the players use their phones.
+  party: boolean;
   // The settings the host chose in the lobby (for Ludo: the number of players and the house rules).
   options: O;
   match: M | null;

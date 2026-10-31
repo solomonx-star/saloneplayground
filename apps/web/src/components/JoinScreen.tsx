@@ -1,0 +1,23 @@
+"use client";
+
+import dynamic from "next/dynamic";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+
+// A phone joining a party from its QR code: opens the right game with the room code filled in. The game screens load
+// in the browser only, since they read this device's saved name and connect to the game server straight away.
+const LudoOnline = dynamic(() => import("@/components/ludo/LudoOnline"), { ssr: false });
+const TinTanToOnline = dynamic(() => import("@/components/tintanto/TinTanToOnline"), { ssr: false });
+
+export default function JoinScreen({ room, game }: { room: string; game: string }) {
+  const router = useRouter();
+  const home = () => router.push("/");
+  if (game === "ludo") return <LudoOnline mode="phone" joinCode={room} onBack={home} onLocal={home} />;
+  if (game === "tintanto") return <TinTanToOnline mode="phone" joinCode={room} onBack={home} onLocal={home} />;
+  return <main className="draft-screen">
+    <section className="draft-content">
+      <div className="draft-intro"><p className="eyebrow">JOIN A GAME</p><h1>That link is not complete.</h1><p>Scan the QR code on the big screen again, or open the games and join with the room code.</p></div>
+      <Link className="online-link" href="/">← All the games</Link>
+    </section>
+  </main>;
+}

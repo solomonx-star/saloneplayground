@@ -47,6 +47,7 @@ export class RoomsService implements OnApplicationShutdown {
       hostId: room.hostId,
       seats: room.seats.map((s) => ({ ...s, connected: s.cpu || this.connected(room, s.guestId) })),
       status: room.status,
+      party: room.party,
       options: room.options,
       match: room.match,
       timer: deadline ? { seat: deadline.seat, endsIn: Math.max(0, deadline.at - Date.now()), reason: deadline.reason } : null,
@@ -54,16 +55,18 @@ export class RoomsService implements OnApplicationShutdown {
     };
   }
 
-  async create(guest: GuestRef, game: unknown, options: unknown, connection: string): Promise<RoomView> {
+  // A room for online play has its host in the first seat. A party room's host is the shared screen, which takes no
+  // seat: every seat is for the players' phones (or computer players).
+  async create(guest: GuestRef, game: unknown, options: unknown, party: unknown, connection: string): Promise<RoomView> {
     if (!isGameId(game)) throw new RoomError("That game cannot be played online yet.");
     const rules = ONLINE_GAMES[game];
     const chosen = rules.options(options, rules.defaultOptions);
     const code = await this.freeCode();
     const now = new Date();
     const seats = Array.from({ length: rules.seats(chosen) }, emptySeat);
-    seats[0] = { guestId: guest.guestId, name: guest.name, cpu: false, level: "normal" };
+    if (party !== true) seats[0] = { guestId: guest.guestId, name: guest.name, cpu: false, level: "normal" };
     const room: LiveRoom = {
-      _id: code, game, hostId: guest.guestId, seats, status: "lobby", options: chosen, match: null, version: 0,
+      _id: code, game, hostId: guest.guestId, seats, status: "lobby", party: party === true, options: chosen, match: null, version: 0,
       createdAt: now, updatedAt: now, expiresAt: now, connections: new Map([[guest.guestId, new Set([connection])]]), queue: Promise.resolve(),
     };
     this.live.set(code, room);
@@ -72,8 +75,15 @@ export class RoomsService implements OnApplicationShutdown {
   }
 
   // Takes the guest to their seat: the one they already have, or the first free seat while the room is in its lobby.
+  // A party room's shared screen comes back as the host, without a seat.
   join(guest: GuestRef, code: unknown, connection: string): Promise<RoomView> {
     return this.run(code, async (room) => {
+      if (room.party && room.hostId === guest.guestId) {
+        room.connections.set(guest.guestId, (room.connections.get(guest.guestId) ?? new Set()).add(connection));
+        this.scheduleTurn(room);
+        this.emit(room);
+        return this.view(room);
+      }
       let seat = room.seats.findIndex((s) => s.guestId === guest.guestId);
       if (seat < 0) {
         if (room.status !== "lobby") throw new RoomError("That game has already started.");
@@ -89,16 +99,18 @@ export class RoomsService implements OnApplicationShutdown {
   }
 
   // A guest leaving on purpose. In the lobby their seat is freed; during a game a computer player takes it over so
-  // the others can play on. The host's role passes to another player, and a room with nobody left is closed.
+  // the others can play on. The host's role passes to another player, and a room with nobody left is closed. When a
+  // party room's shared screen leaves, the party is over and the room closes for everyone.
   leave(guest: GuestRef, code: unknown): Promise<void> {
     return this.run(code, async (room) => {
+      if (room.party && room.hostId === guest.guestId) { await this.close(room); return; }
       const seat = room.seats.findIndex((s) => s.guestId === guest.guestId);
       room.connections.delete(guest.guestId);
       if (seat >= 0) {
         room.seats[seat] = room.status === "lobby" ? emptySeat() : { guestId: null, name: `${room.seats[seat].name} (CPU)`, cpu: true, level: "normal" };
       }
       const humans = room.seats.filter((s) => s.guestId);
-      if (!humans.length) { await this.close(room); return; }
+      if (!humans.length && !room.party) { await this.close(room); return; }
       if (room.hostId === guest.guestId) room.hostId = humans[0].guestId!;
       this.scheduleTurn(room);
       await this.save(room);
@@ -170,12 +182,14 @@ export class RoomsService implements OnApplicationShutdown {
     });
   }
 
-  // A move or other game action from a guest, checked by the game's rules.
+  // A move or other game action from a guest, checked by the game's rules. A party room's shared screen has no seat
+  // (seat -1): the game only lets it do what needs no seat, such as starting the next round.
   act(guest: GuestRef, code: unknown, action: unknown): Promise<RoomView> {
     return this.run(code, async (room) => {
       if (room.status !== "playing") throw new RoomError("The game has not started yet.");
       const seat = room.seats.findIndex((s) => s.guestId === guest.guestId);
-      if (seat < 0) throw new RoomError("You do not have a seat in this game.");
+      const partyHost = room.party && room.hostId === guest.guestId;
+      if (seat < 0 && !partyHost) throw new RoomError("You do not have a seat in this game.");
       const next = ONLINE_GAMES[room.game].act(room.match, seat, action, random);
       if (typeof next === "string") throw new RoomError(next);
       await this.update(room, next);
@@ -226,8 +240,9 @@ export class RoomsService implements OnApplicationShutdown {
     const limits: Deadline[] = [];
     const limit = game.timeLimit(room.match);
     if (limit !== null) limits.push({ seat, at: Date.now() + limit * 1000 * scale, reason: "timeout" });
-    // Only play for someone away while somebody else is still connected to watch.
-    const someoneHere = room.seats.some((s) => s.guestId && s.guestId !== player.guestId && this.connected(room, s.guestId));
+    // Only play for someone away while somebody else (another player, or the party screen) is still connected.
+    const watchers = [...room.seats.map((s) => s.guestId), room.party ? room.hostId : null];
+    const someoneHere = watchers.some((id) => id && id !== player.guestId && this.connected(room, id));
     if (game.playsForAway && !this.connected(room, player.guestId) && someoneHere) limits.push({ seat, at: Date.now() + this.config.awaySeconds * 1000 * scale, reason: "away" });
     if (!limits.length) return;
     const deadline = limits.reduce((a, b) => (a.at <= b.at ? a : b));
@@ -273,7 +288,7 @@ export class RoomsService implements OnApplicationShutdown {
       loading = (async () => {
         const saved = await this.models.rooms.findById(key).lean();
         if (!saved) throw new RoomError("There is no room with that code. Check it, or ask the host for a new one.");
-        const room: LiveRoom = { ...saved, options: saved.options ?? ONLINE_GAMES[saved.game].defaultOptions, connections: new Map(), queue: Promise.resolve() };
+        const room: LiveRoom = { ...saved, party: saved.party ?? false, options: saved.options ?? ONLINE_GAMES[saved.game].defaultOptions, connections: new Map(), queue: Promise.resolve() };
         this.live.set(key, room);
         this.scheduleTurn(room);
         return room;
@@ -289,15 +304,18 @@ export class RoomsService implements OnApplicationShutdown {
     room.updatedAt = now;
     room.expiresAt = new Date(now.getTime() + this.config.roomHours * 3600_000);
     const doc: RoomDoc = {
-      _id: room._id, game: room.game, hostId: room.hostId, seats: room.seats, status: room.status, options: room.options, match: room.match,
+      _id: room._id, game: room.game, hostId: room.hostId, seats: room.seats, status: room.status, party: room.party, options: room.options, match: room.match,
       version: room.version, createdAt: room.createdAt, updatedAt: room.updatedAt, expiresAt: room.expiresAt,
     };
     await this.models.rooms.replaceOne({ _id: room._id }, doc, { upsert: true });
     this.emit(room);
   }
 
+  // Ends a room: everyone still in it is told it has closed, and it is deleted.
   private async close(room: LiveRoom) {
     clearTimeout(room.turnTimer);
+    room.status = "closed";
+    this.emit(room);
     this.live.delete(room._id);
     await this.models.rooms.deleteOne({ _id: room._id });
   }
