@@ -29,6 +29,10 @@ The game server (for online play) needs a MongoDB database. Copy `apps/server/.e
 - On the same Wi-Fi: open the shared screen at this computer's network address or at `localhost` — the join link always uses the network address (the game server tells it), since phones cannot reach `localhost`. In development the web app accepts phones from the private network ranges (`allowedDevOrigins` in `apps/web/next.config.ts`); Windows may ask to allow Node through the firewall the first time.
 - Code: `apps/web/src/online/PartyJoin.tsx` (QR code, join link, Start a party), the join page `apps/web/src/app/join/page.tsx` with `components/JoinScreen.tsx`, and `ludo/describePlay.ts` (moves in words for the phone). The game screens take a mode (`online`, `party`, `phone`); the server's party rooms are in `apps/server/src/rooms.service.ts`.
 
+## Deploying
+
+The web app and the game server deploy as two Railway services from this repository, with a MongoDB database. See [DEPLOY.md](DEPLOY.md) for the steps, the variables each service needs, and how to lock the game server to the web app's address (`WEB_ORIGIN`).
+
 ## Project layout
 
 The repository is an npm workspace, ready for the version 2 game server:

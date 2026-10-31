@@ -13,7 +13,8 @@ import type { LudoMatch } from "@salone/games/ludo/match";
 import type { DraftMatch } from "@salone/games/draft/match";
 import { plays } from "@salone/games/ludo/rules";
 import { AppModule } from "./app.module";
-import type { Config } from "./config";
+import { parseOrigins, type Config } from "./config";
+import { allowOrigins } from "./setup";
 
 // Runs the real game server against a throwaway MongoDB (never the one in .env) and plays through it as guests
 // over Socket.IO, the way the screens do.
@@ -26,6 +27,7 @@ const sockets: Socket[] = [];
 
 async function startServer() {
   app = await NestFactory.create(AppModule.register(config), { logger: false });
+  allowOrigins(app, config);
   await app.listen(0);
   const address = app.getHttpServer().address() as { port: number };
   url = `http://127.0.0.1:${address.port}`;
@@ -33,7 +35,7 @@ async function startServer() {
 
 beforeAll(async () => {
   mongo = await MongoMemoryServer.create();
-  config = { port: 0, mongoUri: mongo.getUri(), dbName: "salone_test", roomHours: 1, cpuDelayMs: 30, awaySeconds: 30, timeScale: 0.01 };
+  config = { port: 0, mongoUri: mongo.getUri(), dbName: "salone_test", roomHours: 1, cpuDelayMs: 30, awaySeconds: 30, timeScale: 0.01, webOrigins: ["http://allowed.example"] };
   await startServer();
 }, 180_000);
 
@@ -320,5 +322,21 @@ describe("Draft rooms", () => {
     await call(host.socket, EVENTS.act, { action: { type: "turn", steps: [{ from: { r: 6, c: 1 }, to: { r: 5, c: 0 } }] } });
     const replied = await until<RoomView<DraftMatch>>(host.updates, (v) => v.match?.side === "black" && v.match.turns === 2);
     expect(replied.match?.last?.side).toBe("white");
+  });
+});
+
+describe("allowed web addresses", () => {
+  it("reads WEB_ORIGIN as a list, and allows any address when it is not set", () => {
+    expect(parseOrigins(" https://play.example.com/, https://x.up.railway.app ")).toEqual(["https://play.example.com", "https://x.up.railway.app"]);
+    expect(parseOrigins(undefined)).toBe(true);
+    expect(parseOrigins(" , ")).toBe(true);
+  });
+
+  it("lets in browsers from the web app's address and turns others away", async () => {
+    const ask = (origin: string) => fetch(`${url}/socket.io/?EIO=4&transport=polling`, { headers: { Origin: origin } });
+    expect((await ask("http://allowed.example")).headers.get("access-control-allow-origin")).toBe("http://allowed.example");
+    expect((await ask("https://elsewhere.example")).headers.get("access-control-allow-origin")).toBeNull();
+    const health = await fetch(`${url}/health`, { headers: { Origin: "https://elsewhere.example" } });
+    expect(health.headers.get("access-control-allow-origin")).toBeNull();
   });
 });

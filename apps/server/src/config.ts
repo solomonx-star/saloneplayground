@@ -15,6 +15,9 @@ export type Config = {
   awaySeconds: number;
   // Multiplies every turn and away time limit; 1 in real play (tests make it small so timers run out quickly).
   timeScale: number;
+  // The web app addresses allowed to connect (from WEB_ORIGIN, comma-separated), or true to allow any: fine on this
+  // computer and the local network while developing, but set it when the server is public.
+  webOrigins: string[] | true;
 };
 
 export const CONFIG = Symbol("config");
@@ -30,5 +33,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     cpuDelayMs: Number(env.CPU_DELAY_MS ?? 700),
     awaySeconds: Number(env.AWAY_SECONDS ?? 30),
     timeScale: 1,
+    webOrigins: parseOrigins(env.WEB_ORIGIN),
   };
+}
+
+// "https://play.example.com, https://example.up.railway.app/" → ["https://play.example.com", "https://example.up.railway.app"].
+export function parseOrigins(value: string | undefined): string[] | true {
+  const origins = (value ?? "").split(",").map((o) => o.trim().replace(/\/+$/, "")).filter(Boolean);
+  return origins.length ? origins : true;
 }

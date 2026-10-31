@@ -2,6 +2,9 @@
   "name": "salone-playground",
   "version": "0.2.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -28,5 +31,10 @@
     "socket.io-client": "^4.8.4",
     "typescript": "^5",
     "vitest": "^3.2.4"
+  },
+  "config": {
+    "mongodbMemoryServer": {
+      "disablePostinstall": "1"
+    }
   }
 }

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "buildCommand": "npm run build -w @salone/web",
+    "watchPatterns": ["apps/web/**", "packages/games/**", "package.json", "package-lock.json"]
+  },
+  "deploy": {
+    "startCommand": "npm run start -w @salone/web",
+    "healthcheckPath": "/",
+    "healthcheckTimeout": 120,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}

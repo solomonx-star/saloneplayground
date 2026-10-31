@@ -21,9 +21,9 @@ async function reply<T>(work: () => Promise<T>): Promise<Reply<T>> {
 }
 
 // The Socket.IO entry point. A screen says hello first (to become a guest), then creates or joins a room and sends
-// requests; each request gets a Reply, and everyone in the room gets the room's new state as an update.
-// Any web origin may connect for now (phones on the local network included); limit it when the server goes live.
-@WebSocketGateway({ cors: { origin: true } })
+// requests; each request gets a Reply, and everyone in the room gets the room's new state as an update. Which web
+// addresses may connect is set in setup.ts from WEB_ORIGIN.
+@WebSocketGateway()
 export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
   @WebSocketServer() private server!: Server;
 
