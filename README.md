@@ -11,15 +11,17 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-## Current Balance Ball prototype
+## Balance Ball
 
-- A team of three takes turns in the middle, one player at a time, dodging a soft sock ball thrown from the sides. The others wait on the bench.
-- Move the player in the middle with WASD, arrow keys, or the joystick on touch screens (a partial push moves slower).
-- The computer throws while you are in the middle. When you are throwing, tap/click the field to aim; the thrower nearest your tap throws.
-- A hit puts that player out and the next one steps in. When all three are out, the teams swap.
-- Feedback: throws whoosh and the thrower pops, balls cast a shadow, a hit shakes the screen and plays in slow motion, close dodges are called out, and a full knockout gets a cheer. While throwing, a faint guide shows the aim from the nearest thrower.
-- Sound and the mute button are shared with Touch (`src/components/sound.ts`); visual effects are in `src/components/effects.ts`.
-- The game shelf opens Balance Ball in a fullscreen play view on desktop and adapts to mobile screens.
+- One sock ball, two throwing ends. A throw has to reach the other end (bouncing off the side lines if it is angled) and be picked up there before anyone can throw again.
+- A team of three dodges one player at a time; when all three are out the teams swap. A match is one inning each; most points wins.
+- Two modes:
+  - **Classic**: dodge in the middle. Every throw at you that reaches the far end without a hit scores a point for the dodging team.
+  - **Round of 24**: five circles, one in the middle where the run starts and ends and four on the diagonals numbered 1–4. Run 1 → 2 → 3 → 4 and round again; each circle reached in order is a round. After round 23 you run back to the middle for round 24. You are safe inside a circle and can be hit anywhere else. A circle only keeps you safe for 6 seconds (a ring counts it down), so you have to keep moving. Each round run scores a point.
+- Computer throwers move: the thrower with the ball steps up and squares up to the dodger, the other spreads out for a second angle and runs to meet the ball. They throw fast, usually aim ahead of a runner, hold the ball while you are safe in a circle (passing it across for a new angle), and need a moment to react when you break from a circle. A ring around a computer thrower shows it winding up.
+- Computer dodgers sidestep throws they see coming; in Round of 24 they wait in a circle until the ball is far enough away to make the run.
+- Controls: WASD, arrow keys or the joystick move your dodger, or your thrower with the ball when your team is throwing. Click or tap the field to throw, or press Space to throw at the dodger.
+- Code: tuning in `src/components/balance/settings.ts`, ball and decision logic in `balance/logic.ts` (tested in `balance/balance.test.ts`), Phaser scene in `balance/scene.ts`, screen in `balance/BalanceGame.tsx`.
 
 ## Touch
 
