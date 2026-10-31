@@ -89,3 +89,5 @@
 .ludo-phone .draft-message{text-align:center}.ludo-phone-actions{justify-content:center;flex-wrap:wrap}.ludo-phone-actions button{border:1px solid #ffffff45;background:#1b4b37;border-radius:6px;color:#f5f4e9;padding:10px 12px;font:500 10px 'DM Mono',monospace;letter-spacing:.08em}
 @media(max-width:600px){.party-join{grid-template-columns:1fr;justify-items:center;text-align:center}}
 @media(prefers-reduced-motion:reduce){.ludo-die-face.tumbling{animation:none}}
+.online-mark.draft-mark.black{background:radial-gradient(circle at 34% 28%,#71716a,#252622 67%);border-color:#111}.online-mark.draft-mark.white{background:radial-gradient(circle at 34% 28%,#fff9e8,#cdbd9b 72%);border-color:#8c795a}
+.party-screen .draft-board-wrap{width:min(100%,calc(100dvh - 210px),900px)}

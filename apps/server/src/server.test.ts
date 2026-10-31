@@ -10,6 +10,7 @@ import { chooseMove } from "@salone/games/tintanto/rules";
 import { EVENTS, type Guest, type Reply, type RoomView } from "@salone/games/online/protocol";
 import type { LudoOptions } from "@salone/games/online/games";
 import type { LudoMatch } from "@salone/games/ludo/match";
+import type { DraftMatch } from "@salone/games/draft/match";
 import { plays } from "@salone/games/ludo/rules";
 import { AppModule } from "./app.module";
 import type { Config } from "./config";
@@ -304,5 +305,20 @@ describe("party rooms", () => {
     const answer = await (await fetch(`${url}/network`)).json() as { addresses: string[] };
     expect(Array.isArray(answer.addresses)).toBe(true);
     for (const address of answer.addresses) expect(address).toMatch(/^(10|172|192)\./);
+  });
+});
+
+describe("Draft rooms", () => {
+  it("plays Draft online: Black moves first, turns are checked on the server, and a computer seat replies", async () => {
+    const host = await connect("Host");
+    const room = await call<RoomView<DraftMatch>>(host.socket, EVENTS.create, { game: "draft" });
+    expect(room.seats).toHaveLength(2);
+    await call(host.socket, EVENTS.addCpu, { seat: 1, level: "easy" });
+    const started = await call<RoomView<DraftMatch>>(host.socket, EVENTS.start);
+    expect(started.match?.side).toBe("black");
+    expect(await refused(host.socket, EVENTS.act, { action: { type: "turn", steps: [{ from: { r: 6, c: 1 }, to: { r: 4, c: 3 } }] } })).toMatch(/not allowed/);
+    await call(host.socket, EVENTS.act, { action: { type: "turn", steps: [{ from: { r: 6, c: 1 }, to: { r: 5, c: 0 } }] } });
+    const replied = await until<RoomView<DraftMatch>>(host.updates, (v) => v.match?.side === "black" && v.match.turns === 2);
+    expect(replied.match?.last?.side).toBe("white");
   });
 });

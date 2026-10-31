@@ -1,7 +1,7 @@
 // The messages between the game screens and the game server, for party and online play. The server sends each
 // room's state as a RoomView after every change; screens send requests and get a Reply back.
 
-export type GameId = "tintanto" | "ludo";
+export type GameId = "tintanto" | "ludo" | "draft";
 // A closed room has ended for good (its party screen left); screens drop it when they see that.
 export type RoomStatus = "lobby" | "playing" | "closed";
 

@@ -1,3 +1,6 @@
+import { chooseTurn, LEVELS as DRAFT_LEVELS, type Level as DraftLevel } from "../draft/ai";
+import { findTurn, newDraftMatch, playTurn, type DraftMatch } from "../draft/match";
+import type { Pos, Side } from "../draft/rules";
 import { canRoll, makePlay, newLudoMatch, rematch, rollDice, standIn, type LudoMatch, type StandInReason } from "../ludo/match";
 import { chooseMove as chooseLudoMove, LEVELS as LUDO_LEVELS, NO_RULES, RULES, TURN_SECONDS, type Level as LudoLevel, type Play, type Rule, type Rules } from "../ludo/rules";
 import { applyMove, canMove, newMatch, nextRound, type Match } from "../tintanto/match";
@@ -109,5 +112,40 @@ export const ludo: OnlineGame<LudoMatch, LudoAction, LudoOptions> = {
   roundOver: (match) => !!match.game.winner,
 };
 
-export const ONLINE_GAMES: Record<GameId, OnlineGame<unknown, unknown, unknown>> = { tintanto: tinTanTo, ludo };
+// ---- Draft ----
+
+// Seat 0 plays Black (bottom, moves first: the Blackman Trouble Rule), seat 1 plays White. A turn is sent as its steps
+// (from and to squares) and checked against the rules. A rematch starts a new game once one is over.
+export type DraftAction = { type: "turn"; steps: { from: Pos; to: Pos }[] } | { type: "rematch" };
+const SIDES: Side[] = ["black", "white"];
+
+export const draft: OnlineGame<DraftMatch, DraftAction, Record<string, never>> = {
+  label: "Draft",
+  levels: DRAFT_LEVELS,
+  defaultOptions: {},
+  options: () => ({}),
+  seats: () => 2,
+  start: () => newDraftMatch(),
+  turn: (match) => (match.result ? null : SIDES.indexOf(match.side)),
+  act(match, seat, action) {
+    if (action?.type === "rematch") return match.result ? newDraftMatch() : "The game is not over yet.";
+    if (action?.type !== "turn") return "Unknown action.";
+    if (match.result) return "The game is over.";
+    if (SIDES[seat] !== match.side) return "It is not your turn.";
+    const turn = findTurn(match, action.steps);
+    return turn ? playTurn(match, turn) : "That move is not allowed.";
+  },
+  cpuAction(match, seat, level) {
+    if (match.result || SIDES[seat] !== match.side) return null;
+    const turn = chooseTurn(match.board, match.side, (level in DRAFT_LEVELS ? level : "normal") as DraftLevel);
+    return turn ? { type: "turn", steps: turn.steps.map(({ from, to }) => ({ from, to })) } : null;
+  },
+  timeLimit: () => null,
+  // A thinking game: wait for a player who drops out rather than move for them.
+  playsForAway: false,
+  standIn: (match) => match,
+  roundOver: (match) => !!match.result,
+};
+
+export const ONLINE_GAMES: Record<GameId, OnlineGame<unknown, unknown, unknown>> = { tintanto: tinTanTo, ludo, draft };
 export const isGameId = (value: unknown): value is GameId => typeof value === "string" && value in ONLINE_GAMES;

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { applyMove, canMove, newMatch, nextRound, restartRound, type Match } from "../tintanto/match";
 import type { Cell, Mark } from "../tintanto/rules";
 import { cleanName, ROOM_CODE } from "./protocol";
-import { isGameId, ludo, ONLINE_GAMES, tinTanTo } from "./games";
+import { draft, isGameId, ludo, ONLINE_GAMES, tinTanTo } from "./games";
+import type { DraftMatch } from "../draft/match";
+import { emptyBoard } from "../draft/rules";
 import type { LudoMatch } from "../ludo/match";
 import { NO_RULES } from "../ludo/rules";
 
@@ -165,5 +167,48 @@ describe("Ludo online", () => {
     expect(again.game.winner).toBeNull();
     expect(again.game.rules.taxi).toBe(true);
     expect(again.game.seats).toHaveLength(4);
+  });
+});
+
+describe("Draft online", () => {
+  it("seats Black first, and accepts only legal turns from the side to move", () => {
+    const match = draft.start({});
+    expect(draft.turn(match)).toBe(0);
+    const legal = { type: "turn" as const, steps: [{ from: { r: 6, c: 1 }, to: { r: 5, c: 0 } }] };
+    expect(draft.act(match, 1, legal)).toBe("It is not your turn.");
+    expect(draft.act(match, 0, { type: "turn", steps: [{ from: { r: 6, c: 1 }, to: { r: 4, c: 3 } }] })).toBe("That move is not allowed.");
+    expect(draft.act(match, 0, { type: "turn", steps: "nonsense" } as never)).toBe("That move is not allowed.");
+    expect(draft.act(match, 0, { type: "turn", steps: [{ from: null, to: { r: 5, c: 0 } }] } as never)).toBe("That move is not allowed.");
+    expect(draft.act(match, 0, { type: "rematch" })).toBe("The game is not over yet.");
+    const moved = draft.act(match, 0, legal) as DraftMatch;
+    expect(moved.board[5][0]).toEqual({ side: "black", king: false });
+    expect(moved.side).toBe("white");
+    expect(draft.turn(moved)).toBe(1);
+    expect(moved.last?.side).toBe("black");
+  });
+
+  it("finds a capture chain by its steps, and computer players take their turns", () => {
+    let match = draft.start({});
+    for (let i = 0; i < 40 && !draft.roundOver(match); i++) {
+      const seat = draft.turn(match)!;
+      const action = draft.cpuAction(match, seat, "easy")!;
+      expect(draft.cpuAction(match, 1 - seat, "easy")).toBeNull();
+      const next = draft.act(match, seat, action);
+      expect(typeof next).toBe("object");
+      match = next as DraftMatch;
+    }
+    expect(match.turns).toBeGreaterThan(0);
+  });
+
+  it("ends the game when a side has no pieces, and offers a rematch", () => {
+    // Black takes White's last piece.
+    const board = emptyBoard();
+    board[5][4] = { side: "black", king: false };
+    board[4][5] = { side: "white", king: false };
+    const won = draft.act({ ...draft.start({}), board }, 0, { type: "turn", steps: [{ from: { r: 5, c: 4 }, to: { r: 3, c: 6 } }] }) as DraftMatch;
+    expect(won.result).toEqual({ winner: "black", reason: "captured" });
+    expect(draft.roundOver(won)).toBe(true);
+    expect(draft.turn(won)).toBeNull();
+    expect((draft.act(won, 1, { type: "rematch" }) as DraftMatch).turns).toBe(0);
   });
 });
