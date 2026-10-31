@@ -1,10 +1,11 @@
-import { BALANCE, BOUNDS, CIRCLES, LEFT_LINE, RIGHT_LINE, type Point } from "./settings";
+import { BALANCE, BOUNDS, CIRCLES, DODGE_ZONE, DROP, GATHER, LEFT_LINE, LEVELS, RIGHT_LINE, type Level, type Mode, type Point } from "./settings";
 
-// Plain functions for Balance Ball: the ball's flight, the circles of Round of 24, and the decisions of the
-// computer throwers and dodgers. Kept free of Phaser so they can be tested.
+// Plain functions for Balance Ball: the ball's flight, the circles of Round of 24, the caps of Gather, who is
+// left standing in All Man Yone, and the decisions of the computer throwers and dodgers. Kept free of Phaser so they can be tested.
 
 export type Side = "left" | "right";
 export type Ball = { x: number; y: number; vx: number; vy: number; live: boolean };
+export type Tuning = { ballSpeed: number; throwerSpeed: number; windup: [number, number]; reaction: [number, number]; aimError: number; leadChance: number; circleSeconds: number };
 
 const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 export const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -19,6 +20,34 @@ export function circleAt(p: Point): number | null {
 // The circle to reach for round `round` (1-based): 1, 2, 3, 4, 1, 2, … and the middle circle for the last round.
 export function targetCircle(round: number): number {
   return round >= BALANCE.rounds ? 0 : ((round - 1) % 4) + 1;
+}
+
+// The lap a round belongs to: rounds 1–4 are lap 1, … and rounds 21–24 are lap 6.
+export const lapOf = (round: number) => Math.ceil(clamp(round, 1, BALANCE.rounds) / 4);
+
+// How the computer team throws at this level. In Round of 24 they get sharper every lap the runner completes,
+// and circles keep a dodger safe for less time.
+export function tuning(level: Level, mode: Mode, round: number): Tuning {
+  const base = LEVELS[level];
+  const laps = mode === "round24" ? lapOf(round) - 1 : 0;
+  const ramp = BALANCE.lapRamp;
+  const shrink = (k: number) => Math.max(0.4, 1 - k * laps);
+  return {
+    ballSpeed: base.ballSpeed * (1 + ramp.ballSpeed * laps),
+    throwerSpeed: base.throwerSpeed,
+    windup: [base.windup[0] * shrink(ramp.windup), base.windup[1] * shrink(ramp.windup)],
+    reaction: [base.reaction[0] * shrink(ramp.reaction), base.reaction[1] * shrink(ramp.reaction)],
+    aimError: base.aimError * shrink(ramp.aim),
+    leadChance: Math.min(0.95, base.leadChance + ramp.lead * laps),
+    circleSeconds: Math.max(BALANCE.minCircleSeconds, base.circleSeconds - ramp.circleSeconds * laps),
+  };
+}
+
+// Round of 24: a dodger is safe only inside their base (the circle they last reached in order) and only until
+// its time runs out. The clock keeps running if they step out, so stepping back in does not restart it, and
+// circles already run do not count.
+export function safeAt(p: Point, base: number, baseTime: number, circleSeconds: number): boolean {
+  return circleAt(p) === base && baseTime < circleSeconds;
 }
 
 // Where to throw so the ball meets a runner moving at `velocity`, assuming they keep going. Falls back to
@@ -72,14 +101,14 @@ export const headingTo = (ball: Ball): Side => (ball.vx ? (ball.vx > 0 ? "right"
 
 // Seconds before a throw could reach `spot`: the time for the ball to get to a thrower, for them to pick it
 // up and wind up, and for the throw to fly there.
-export function dangerTime(spot: Point, ball: Ball | null, holder: Point | null, throwers: Record<Side, Point>, windupLeft: number): number {
-  const flight = (from: Point) => dist(from, spot) / BALANCE.ballSpeed;
+export function dangerTime(spot: Point, ball: Ball | null, holder: Point | null, throwers: Record<Side, Point>, windupLeft: number, ballSpeed = BALANCE.ballSpeed, windupMin = LEVELS.normal.windup[0]): number {
+  const flight = (from: Point) => dist(from, spot) / ballSpeed;
   if (holder) return Math.max(0, windupLeft) + flight(holder);
   if (!ball) return Infinity;
   const receiver = throwers[headingTo(ball)];
   const line = ball.vx >= 0 ? RIGHT_LINE : LEFT_LINE;
   const arrive = ball.vx ? Math.max(0, (line - ball.x) / ball.vx) : 0;
-  return arrive + BALANCE.pickupSeconds + BALANCE.windup[0] + flight(receiver);
+  return arrive + BALANCE.pickupSeconds + windupMin + flight(receiver);
 }
 
 // Is a flying ball about to hit someone at `p`? True when it is coming their way and will pass within reach.
@@ -104,8 +133,61 @@ export function dodgeStep(ball: Ball | null, p: Point): Point | null {
 
 // Round of 24: should a computer dodger standing in a circle make the run to the next one now?
 // It goes when it can get there before any throw could, or when its time in the circle is nearly up.
-export function shouldRun(from: Point, target: Point, danger: number, circleTime: number, courage = 1): boolean {
-  if (circleTime > BALANCE.circleSeconds - 1.2) return true;
-  const run = Math.max(0, dist(from, target) - 30) / BALANCE.dodgerSpeed;
+export function shouldRun(from: Point, target: Point, danger: number, circleTime: number, courage = 1, circleSeconds = LEVELS.normal.circleSeconds, speed = BALANCE.dodgerSpeed): boolean {
+  if (circleTime > circleSeconds - 1.2) return true;
+  const run = Math.max(0, dist(from, target) - 30) / speed;
   return run < danger * courage;
+}
+
+// ---- Gather ----
+
+// Scatters `count` bottle caps over the dodge zone, spaced apart and clear of the middle circle. Spacing is
+// relaxed a little if the field gets crowded, so it always returns `count` caps.
+export function scatter(count: number, random: () => number = Math.random): Point[] {
+  const caps: Point[] = [];
+  const margin = 22;
+  let spacing = GATHER.spacing;
+  for (let tries = 0; caps.length < count; tries++) {
+    if (tries > 0 && tries % 400 === 0) spacing *= 0.85;
+    const p = { x: DODGE_ZONE.left + margin + random() * (DODGE_ZONE.right - DODGE_ZONE.left - margin * 2), y: DODGE_ZONE.top + margin + random() * (DODGE_ZONE.bottom - DODGE_ZONE.top - margin * 2) };
+    if (dist(p, DROP) < GATHER.clearOfDrop) continue;
+    if (caps.some((c) => dist(c, p) < spacing)) continue;
+    caps.push(p);
+  }
+  return caps;
+}
+
+// The cap a computer dodger goes for: close to them, and not too far from the middle circle, so each trip is short.
+export function nearestItem(from: Point, items: Point[]): number {
+  let best = -1; let bestScore = Infinity;
+  items.forEach((item, i) => {
+    const score = dist(from, item) + dist(item, DROP) * 0.5;
+    if (score < bestScore) { bestScore = score; best = i; }
+  });
+  return best;
+}
+
+// ---- All Man Yone ----
+
+// How many players each team still has standing. `out` lists every player, your team first.
+export function standing(out: boolean[], perTeam = BALANCE.players) {
+  return { you: out.slice(0, perTeam).filter((o) => !o).length, them: out.slice(perTeam).filter((o) => !o).length };
+}
+
+// The team that has won the round (the other has no one left), or null while both still have players in.
+export function roundWinner(out: boolean[], perTeam = BALANCE.players): "you" | "them" | null {
+  const left = standing(out, perTeam);
+  return left.you === 0 ? "them" : left.them === 0 ? "you" : null;
+}
+
+// Who a neutral thrower goes after: a player still in, usually one of the closest, with some randomness so no
+// team is singled out.
+export function pickMark(from: Point, players: Point[], out: boolean[], random: () => number = Math.random): number {
+  let best = -1; let bestScore = Infinity;
+  players.forEach((p, i) => {
+    if (out[i]) return;
+    const score = dist(from, p) + random() * 220;
+    if (score < bestScore) { bestScore = score; best = i; }
+  });
+  return best;
 }

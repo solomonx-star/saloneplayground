@@ -41,3 +41,4 @@
 @keyframes ttt-draw{to{stroke-dashoffset:0}}
 @media(prefers-reduced-motion:reduce){.ttt-mark path,.ttt-mark circle,.ttt-line line{animation:none;stroke-dashoffset:0}}
 @media(max-width:600px){.ttt-board{width:min(100%,calc(100dvh - 300px));padding:6px;border-width:4px}.ttt-screen .draft-actions .draft-buttons{flex-wrap:wrap;justify-content:center}}
+.round-track{grid-column:1/-1;display:flex;gap:2px;margin-top:2px}.round-track i{flex:1;width:4px;height:4px;border-radius:1px;background:#ffffff26}.round-track i:nth-child(4n):not(:last-child){margin-right:3px}.round-track i.done{background:var(--lime)}.round-track i.now{background:#f4df79}

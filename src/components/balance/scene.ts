@@ -1,29 +1,37 @@
 import type PhaserNamespace from "phaser";
 import { burst, floatText, ripple } from "@/components/effects";
 import type { GameSound } from "@/components/sound";
-import { circleAt, clamp, dangerTime, dodgeStep, headingTo, interceptPoint, opposite, shouldRun, stepBall, targetCircle, throwVelocity, type Ball, type Side } from "./logic";
-import { BALANCE, CIRCLES, DODGE_ZONE, FIELD_H, FIELD_W, LEFT_LINE, RIGHT_LINE, START, THROW_ZONES, type Mode, type Point } from "./settings";
+import { circleAt, clamp, dangerTime, dodgeStep, headingTo, interceptPoint, lapOf, nearestItem, opposite, pickMark, roundWinner, safeAt, scatter, shouldRun, standing, stepBall, targetCircle, throwVelocity, tuning, type Ball, type Side } from "./logic";
+import { ALLMAN, BALANCE, CIRCLES, DODGE_ZONE, DROP, FIELD_H, FIELD_W, GATHER, LEFT_LINE, LEVELS, RIGHT_LINE, START, THROW_ZONES, type Level, type Mode, type Point } from "./settings";
 
 type Arc = PhaserNamespace.GameObjects.Arc;
 type Graphics = PhaserNamespace.GameObjects.Graphics;
 
 export type Notice = { text: string; kind: "ready" | "danger" | "success" };
 export type BalanceInput = { x: number; y: number };
-export type BalanceState = { you: number; them: number; inning: number; over: boolean; humanDodges: boolean; player: number; round: number; mode: Mode };
+// gathered/items: Gather progress. standing: All Man Yone players still in, per team.
+export type BalanceState = { you: number; them: number; inning: number; over: boolean; humanDodges: boolean; player: number; round: number; mode: Mode; gathered: number; items: number; standing: { you: number; them: number } };
 
 // Extra facts about the ball in flight that the scene needs but the pure ball model does not.
-type Flight = Ball & { aimed: boolean; hit: boolean; safeCalled: boolean; seen: boolean; closest: number; called: boolean; from: Side };
+// seenBy: in All Man Yone, which players in the field saw this throw coming.
+type Flight = Ball & { aimed: boolean; hit: boolean; safeCalled: boolean; seen: boolean; seenBy: boolean[]; closest: number; called: boolean; from: Side };
+// All Man Yone: where each computer-run player is drifting to, and how each player is moving (for leading throws).
+type Plan = { wander: Point; time: number; velocity: Point; last: Point };
 
 const BLUE = { fill: 0x69c6ef, stroke: 0xe7f8ff };
 const ORANGE = { fill: 0xf2a354, stroke: 0xffe3b1 };
+const NEUTRAL = { fill: 0xd8ceb2, stroke: 0xfff6dc };
+const MINE = 0xf4df79;
 const emit = (name: string, detail?: unknown) => window.dispatchEvent(new CustomEvent(name, { detail }));
 const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 
 // Builds the Phaser scene class. Phaser is passed in because it is only loaded in the browser.
-// The React screen sends balance-start ({ mode }) and listens for balance-status, balance-playing and balance-state.
+// The React screen sends balance-start ({ mode, level }) and listens for balance-status, balance-playing and balance-state.
 export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { current: BalanceInput }, sound: GameSound) {
   return class BalanceField extends Phaser.Scene {
     private dodgers: Arc[] = [];
+    // All Man Yone: the computer team, in the field with yours.
+    private rivals: Arc[] = [];
     private throwers!: Record<Side, Arc>;
     private ballArt!: Arc;
     private keys!: Record<string, PhaserNamespace.Input.Keyboard.Key>;
@@ -31,6 +39,7 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
     private circleLabels: PhaserNamespace.GameObjects.Text[] = [];
     private layer!: Graphics;
     private mode: Mode = "classic";
+    private level: Level = "normal";
     private humanDodges = true;
     private inning = 1;
     private scores = { you: 0, them: 0 };
@@ -46,8 +55,9 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
     private windupTotal = 1;
     private holdTime = 0;
     private round = 1;
-    private circle: number | null = 0;
-    private circleTime = 0;
+    // Round of 24: the circle the dodger last reached in order, and how long since they reached it.
+    private base = 0;
+    private baseTime = 0;
     private cpuRunning = false;
     private courage = 1;
     private wander: Point = { ...START };
@@ -60,6 +70,14 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
     private nextUp?: PhaserNamespace.Time.TimerEvent;
     private lastHint = 0;
     private wasSafe = false;
+    // Gather: caps still on the field, whether the dodger is carrying one, and how many are in.
+    private items: Point[] = [];
+    private carrying = false;
+    private gathered = 0;
+    // All Man Yone: who is out (your team first, then theirs), each player's plan, and who the throwers are after.
+    private out: boolean[] = [];
+    private plans: Plan[] = [];
+    private mark = 0;
 
     constructor() { super("BalanceField"); }
 
@@ -75,6 +93,7 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
       this.circleArt = this.add.graphics().setDepth(1);
       this.layer = this.add.graphics().setDepth(2);
       for (let i = 0; i < BALANCE.players; i++) this.dodgers.push(this.add.circle(START.x, START.y, 14, BLUE.fill).setDepth(3));
+      for (let i = 0; i < BALANCE.players; i++) this.rivals.push(this.add.circle(START.x, START.y, 14, ORANGE.fill).setDepth(3).setVisible(false));
       this.throwers = {
         left: this.add.circle(110, 300, 15, ORANGE.fill).setDepth(3),
         right: this.add.circle(850, 300, 15, ORANGE.fill).setDepth(3),
@@ -93,16 +112,18 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
     // ---- Match flow ----
 
     private start = (event: Event) => {
-      const mode = (event as CustomEvent<{ mode: Mode }>).detail?.mode ?? this.mode;
-      if (!this.started || this.over || mode !== this.mode) this.newMatch(mode);
+      const detail = (event as CustomEvent<{ mode: Mode; level: Level }>).detail;
+      const mode = detail?.mode ?? this.mode; const level = detail?.level ?? this.level;
+      if (!this.started || this.over || mode !== this.mode || level !== this.level) this.newMatch(mode, level);
       sound.whistle();
       this.active = true;
       emit("balance-playing", true);
       this.notice(this.playHint(), "ready");
     };
 
-    private newMatch(mode: Mode) {
+    private newMatch(mode: Mode, level: Level) {
       this.mode = mode;
+      this.level = level;
       this.started = true;
       this.over = false;
       this.inning = 1;
@@ -121,25 +142,44 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
       this.pickup = 0;
       this.armWindup();
       this.resetRun();
+      this.chooseMark();
       this.positionTeams();
       this.publish();
     }
 
     private resetRun() {
       this.round = 1;
-      this.circle = 0;
-      this.circleTime = 0;
+      this.base = 0;
+      this.baseTime = 0;
       this.cpuRunning = false;
       this.courage = 0.8 + Math.random() * 0.5;
       this.trail = [];
       this.velocity = { x: 0, y: 0 };
+      // Gather: every dodger gets a fresh field of caps.
+      this.items = this.mode === "gather" ? scatter(LEVELS[this.level].items) : [];
+      this.carrying = false;
+      this.gathered = 0;
+      if (this.mode === "allman") {
+        // All Man Yone: a new round puts everyone back in, and you start on your first player.
+        this.turn = 0;
+        this.out = this.crowd().map(() => false);
+        this.plans = this.crowd().map(() => ({ wander: { ...START }, time: 0, velocity: { x: 0, y: 0 }, last: { ...START } }));
+        this.mark = 0;
+      }
     }
 
     private playHint() {
       const player = `Player ${this.turn + 1} of ${BALANCE.players}`;
+      if (this.mode === "allman") return `All Man Yone, round ${this.inning}! Both teams are in the field. You play the gold-ringed player; if you are hit you take over a teammate. Last team standing wins.`;
+      if (this.mode === "gather") {
+        const count = LEVELS[this.level].items;
+        return this.humanDodges
+          ? `${player}: pick up the bottle caps one at a time and bring each one to the small circle in the middle. Get all ${count}.`
+          : `${player} of theirs is gathering ${count} caps. Hit them before they bring them all in. Tap to throw.`;
+      }
       if (this.mode === "round24") {
         return this.humanDodges
-          ? `${player}: run the circles 1 → 2 → 3 → 4 and round again. You are only safe inside a circle.`
+          ? `${player}: run the circles 1 → 2 → 3 → 4 and round again. You are only safe in the circle you last reached, until its ring runs out.`
           : `${player} of theirs is running the circles. Hit them when they are out in the open. Tap to throw.`;
       }
       return this.humanDodges ? `${player} is in the middle. Dodge the sock ball!` : `Your team is throwing at their ${player.toLowerCase()}. Tap to throw when you have the ball.`;
@@ -148,7 +188,10 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
     private notice(text: string, kind: Notice["kind"]) { emit("balance-status", { text, kind }); }
 
     private publish() {
-      const state: BalanceState = { ...this.scores, inning: this.inning, over: this.over, humanDodges: this.humanDodges, player: this.turn + 1, round: this.round, mode: this.mode };
+      const state: BalanceState = {
+        ...this.scores, inning: this.inning, over: this.over, humanDodges: this.humanDodges, player: this.turn + 1, round: this.round, mode: this.mode,
+        gathered: this.gathered, items: LEVELS[this.level].items, standing: this.mode === "allman" ? standing(this.out) : { you: 0, them: 0 },
+      };
       emit("balance-state", state);
     }
 
@@ -163,7 +206,16 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
 
     private dodger() { return this.dodgers[this.turn]; }
 
+    // All Man Yone: everyone in the field, your team first.
+    private crowd() { return [...this.dodgers, ...this.rivals]; }
+
+    // Who the computer throwers are after: the dodger, or in All Man Yone the player they have picked.
+    private focus() { return this.mode === "allman" ? this.crowd()[this.mark] : this.dodger(); }
+    private focusVelocity() { return this.mode === "allman" ? this.plans[this.mark].velocity : this.velocity; }
+
     private positionTeams() {
+      this.rivals.forEach((p) => p.setVisible(false));
+      if (this.mode === "allman") { this.positionCrowd(); return; }
       const dodge = this.humanDodges ? BLUE : ORANGE;
       const throwing = this.humanDodges ? ORANGE : BLUE;
       // The current dodger starts in the middle, players still to come wait on the bench, and players already out leave.
@@ -180,8 +232,40 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
       }
     }
 
+    // All Man Yone: both teams stand in a ring in the middle, the two teams taking turns around it, and the
+    // throwers at the ends are neutral.
+    private positionCrowd() {
+      this.crowd().forEach((p, i) => {
+        this.tweens.killTweensOf(p);
+        const mine = i < BALANCE.players;
+        const slot = mine ? i * 2 : (i - BALANCE.players) * 2 + 1;
+        const angle = (slot / (BALANCE.players * 2)) * Math.PI * 2 - Math.PI / 2;
+        const colors = mine ? BLUE : ORANGE;
+        p.setFillStyle(colors.fill).setStrokeStyle(3, colors.stroke).setVisible(true).setAlpha(1).setScale(1)
+          .setPosition(START.x + Math.cos(angle) * 120, START.y + Math.sin(angle) * 120);
+        this.plans[i].last = { x: p.x, y: p.y };
+      });
+      this.highlightMine();
+      for (const side of ["left", "right"] as Side[]) {
+        const zone = THROW_ZONES[side];
+        this.throwers[side].setFillStyle(NEUTRAL.fill).setStrokeStyle(3, NEUTRAL.stroke).setPosition((zone.left + zone.right) / 2, side === "left" ? 240 : 360);
+      }
+    }
+
+    private highlightMine() {
+      this.dodgers.forEach((p, i) => { if (!this.out[i]) p.setStrokeStyle(i === this.turn ? 5 : 3, i === this.turn ? MINE : BLUE.stroke); });
+    }
+
+    // How the computer team plays right now: its level, sharpened lap by lap in Round of 24.
+    private tune() { return tuning(this.level, this.mode, this.round); }
+
+    // Your own team always throws at the normal pace; the level sets the computer team.
+    private throwSpeed() { return this.humanDodges ? this.tune().ballSpeed : BALANCE.ballSpeed; }
+
+    private inBase() { return circleAt(this.dodger()) === this.base; }
+
     private isSafe() {
-      return this.mode === "round24" && this.circle !== null && this.circleTime < BALANCE.circleSeconds;
+      return this.mode === "round24" && safeAt(this.dodger(), this.base, this.baseTime, this.tune().circleSeconds);
     }
 
     // ---- Frame loop ----
@@ -194,11 +278,14 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
       }
       this.layer.clear();
       this.drawCircleState();
+      this.drawItems();
       if (this.active) {
         if (!this.pendingOut) this.moveDodger(dt);
+        if (this.mode === "allman") this.moveCrowd(dt);
         this.moveThrowers(dt);
         this.updateBall(dt);
         if (!this.pendingOut && this.mode === "round24") this.checkCircles(dt);
+        if (!this.pendingOut && this.mode === "gather") this.checkItems();
       }
       this.drawBall();
       this.drawGuides();
@@ -215,10 +302,12 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
         if (this.keys.DOWN.isDown || this.keys.S.isDown) dy += 1;
         // Joystick input is analog (a partial push moves slower); keys and combined input are capped at full speed.
         const length = Math.hypot(dx, dy); const scale = length > 1 ? 1 / length : 1;
-        if (length) this.place(dodger, dodger.x + dx * scale * BALANCE.dodgerSpeed * dt, dodger.y + dy * scale * BALANCE.dodgerSpeed * dt);
+        const speed = BALANCE.dodgerSpeed * (this.carrying ? GATHER.carrySpeed : 1);
+        if (length) this.place(dodger, dodger.x + dx * scale * speed * dt, dodger.y + dy * scale * speed * dt);
         this.stepDistance += dist(before, dodger);
         if (this.stepDistance >= 34) { this.stepDistance = 0; sound.step(); }
       } else if (this.mode === "round24") this.cpuRunCircles(dodger, dt);
+      else if (this.mode === "gather") this.cpuGather(dodger, dt);
       else this.cpuDodge(dodger, dt);
       if (dt > 0) {
         this.velocity = { x: (dodger.x - before.x) / dt * 0.3 + this.velocity.x * 0.7, y: (dodger.y - before.y) / dt * 0.3 + this.velocity.y * 0.7 };
@@ -241,7 +330,7 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
     // Classic: the computer dodger drifts away from whoever has the ball and sidesteps throws it sees coming.
     private cpuDodge(dodger: Arc, dt: number) {
       const step = this.ball?.seen ? dodgeStep(this.ball, dodger) : null;
-      if (step) { this.place(dodger, dodger.x + step.x * 170 * dt, dodger.y + step.y * 170 * dt); return; }
+      if (step) { const speed = LEVELS[this.level].dodgerSpeed * 0.8; this.place(dodger, dodger.x + step.x * speed * dt, dodger.y + step.y * speed * dt); return; }
       this.wanderTime -= dt;
       if (this.wanderTime <= 0) {
         const threat = this.holder ?? (this.ball ? headingTo(this.ball) : "left");
@@ -249,19 +338,21 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
         this.wander = { x, y: 90 + Math.random() * 420 };
         this.wanderTime = 0.8 + Math.random() * 0.9;
       }
-      const next = this.moveTowards(dodger, this.wander, BALANCE.dodgerSpeed * 0.55, dt);
+      const next = this.moveTowards(dodger, this.wander, LEVELS[this.level].dodgerSpeed * 0.55, dt);
       if (next) this.place(dodger, next.x, next.y);
     }
 
-    // Round of 24: wait safely in a circle, run for the next one when the ball is far away, and dodge on the way.
+    // Round of 24: wait safely in the base circle, run for the next one when the ball is far away, and dodge on the way.
     private cpuRunCircles(dodger: Arc, dt: number) {
       const target = CIRCLES[targetCircle(this.round)];
+      const speed = LEVELS[this.level].dodgerSpeed;
       if (!this.cpuRunning) {
-        const here = this.circle !== null ? CIRCLES[this.circle] : null;
-        if (here) { const settle = this.moveTowards(dodger, here, 60, dt); if (settle) this.place(dodger, settle.x, settle.y); }
+        const inBase = this.inBase();
+        if (inBase) { const settle = this.moveTowards(dodger, CIRCLES[this.base], 60, dt); if (settle) this.place(dodger, settle.x, settle.y); }
+        // Your team can throw as soon as the ball is picked up, so the runner allows only a short reaction.
         const holderAt = this.holder ? this.throwers[this.holder] : null;
-        const danger = dangerTime(target, this.ball, holderAt, { left: this.throwers.left, right: this.throwers.right }, this.windup);
-        if (this.circle === null || shouldRun(dodger, target, danger, this.circleTime, this.courage)) this.cpuRunning = true;
+        const danger = dangerTime(target, this.ball, holderAt, { left: this.throwers.left, right: this.throwers.right }, Math.max(0, this.pickup) + 0.25, BALANCE.ballSpeed, 0.25);
+        if (!inBase || shouldRun(dodger, target, danger, this.baseTime, this.courage, this.tune().circleSeconds, speed)) this.cpuRunning = true;
         return;
       }
       const d = dist(dodger, target) || 1;
@@ -269,26 +360,71 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
       const step = this.ball?.seen ? dodgeStep(this.ball, dodger) : null;
       if (step) { mx = mx * 0.5 + step.x * 1.2; my = my * 0.5 + step.y * 1.2; }
       const length = Math.hypot(mx, my) || 1;
-      this.place(dodger, dodger.x + mx / length * BALANCE.dodgerSpeed * dt, dodger.y + my / length * BALANCE.dodgerSpeed * dt);
-      if (d < target.r * 0.5) this.cpuRunning = false;
+      this.place(dodger, dodger.x + mx / length * speed * dt, dodger.y + my / length * speed * dt);
+    }
+
+    // Gather: go for the handiest cap, carry it to the middle circle, and sidestep throws seen coming on the way.
+    private cpuGather(dodger: Arc, dt: number) {
+      const index = this.carrying ? -1 : nearestItem(dodger, this.items);
+      const goal = this.carrying || index < 0 ? DROP : this.items[index];
+      const speed = LEVELS[this.level].dodgerSpeed * (this.carrying ? GATHER.carrySpeed : 1);
+      const d = dist(dodger, goal) || 1;
+      let mx = (goal.x - dodger.x) / d; let my = (goal.y - dodger.y) / d;
+      const step = this.ball?.seen ? dodgeStep(this.ball, dodger) : null;
+      if (step) { mx = mx * 0.5 + step.x * 1.2; my = my * 0.5 + step.y * 1.2; }
+      const length = Math.hypot(mx, my) || 1;
+      this.place(dodger, dodger.x + mx / length * speed * dt, dodger.y + my / length * speed * dt);
+    }
+
+    // All Man Yone: every player you are not steering keeps away from the thrower with the ball, sidesteps throws
+    // they see coming, and does not bunch up with the others. Your teammates play at Normal; their team at the level.
+    private moveCrowd(dt: number) {
+      const crowd = this.crowd();
+      crowd.forEach((p, i) => {
+        const plan = this.plans[i];
+        if (!this.out[i] && i !== this.turn) {
+          const speed = (i < BALANCE.players ? LEVELS.normal : LEVELS[this.level]).dodgerSpeed;
+          const step = this.ball?.seenBy[i] ? dodgeStep(this.ball, p) : null;
+          if (step) this.place(p, p.x + step.x * speed * 0.8 * dt, p.y + step.y * speed * 0.8 * dt);
+          else {
+            plan.time -= dt;
+            if (plan.time <= 0) {
+              const threat = this.holder ?? (this.ball ? headingTo(this.ball) : "left");
+              const x = threat === "left" ? 480 + Math.random() * 260 : 220 + Math.random() * 260;
+              plan.wander = { x, y: 90 + Math.random() * 420 };
+              plan.time = 0.7 + Math.random() * 0.9;
+            }
+            let next = this.moveTowards(p, plan.wander, speed * 0.55, dt) ?? { x: p.x, y: p.y };
+            // Keep a little room from the nearest player still in.
+            crowd.forEach((q, j) => {
+              if (j === i || this.out[j]) return;
+              const gap = dist(next, q);
+              if (gap > 0 && gap < 44) next = { x: next.x + (next.x - q.x) / gap * 40 * dt, y: next.y + (next.y - q.y) / gap * 40 * dt };
+            });
+            this.place(p, next.x, next.y);
+          }
+        }
+        if (dt > 0) plan.velocity = { x: (p.x - plan.last.x) / dt * 0.3 + plan.velocity.x * 0.7, y: (p.y - plan.last.y) / dt * 0.3 + plan.velocity.y * 0.7 };
+        plan.last = { x: p.x, y: p.y };
+      });
     }
 
     private moveThrowers(dt: number) {
-      const dodger = this.dodger();
+      const dodger = this.focus();
       for (const side of ["left", "right"] as Side[]) {
         const t = this.throwers[side];
         const zone = THROW_ZONES[side];
         const front = side === "left" ? zone.right - 10 : zone.left + 10;
         const middle = (zone.left + zone.right) / 2;
         let goal: Point;
-        let speed = BALANCE.throwerSpeed;
+        let speed = this.humanDodges ? this.tune().throwerSpeed : BALANCE.throwerSpeed;
         const fetching = this.ball && headingTo(this.ball) === side;
         if (fetching) {
           // Run to meet the ball: track its line while it crosses, then go and pick it up.
           const ball = this.ball!;
           const crossing = side === "left" ? ball.x > LEFT_LINE : ball.x < RIGHT_LINE;
           goal = crossing ? { x: middle, y: ball.y } : { x: ball.x, y: ball.y };
-          speed = BALANCE.fetchSpeed;
+          speed *= BALANCE.fetchBoost;
         } else if (this.holder === side) {
           if (!this.humanDodges) {
             // Your thrower with the ball: move it with the joystick or the keys.
@@ -301,7 +437,7 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
             goal = { x: t.x + dx * scale * 60, y: t.y + dy * scale * 60 };
           } else {
             // Computer thrower with the ball steps up to the line and squares up to the dodger.
-            goal = { x: front, y: dodger.y + this.velocity.y * 0.4 };
+            goal = { x: front, y: dodger.y + this.focusVelocity().y * 0.4 };
           }
         } else {
           // The other thrower spreads out from the dodger's line to make a second angle.
@@ -318,7 +454,7 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
     // ---- The ball ----
 
     private armWindup() {
-      const [lo, hi] = BALANCE.windup;
+      const [lo, hi] = this.tune().windup;
       this.windupTotal = lo + Math.random() * (hi - lo);
       this.windup = this.windupTotal;
       this.holdTime = 0;
@@ -332,13 +468,23 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
       this.holder = side;
       this.pickup = BALANCE.pickupSeconds;
       this.armWindup();
+      this.chooseMark();
+    }
+
+    // All Man Yone: the thrower with the ball picks who to go after.
+    private chooseMark() {
+      if (this.mode !== "allman" || !this.holder) return;
+      const pick = pickMark(this.throwers[this.holder], this.crowd(), this.out);
+      if (pick >= 0) this.mark = pick;
     }
 
     private throwBall(side: Side, at: Point, aimed: boolean) {
       const t = this.throwers[side];
-      const v = throwVelocity(t, at, side);
-      const seenChance = this.mode === "round24" ? 0.8 : 0.6;
-      this.ball = { x: t.x, y: t.y, vx: v.x, vy: v.y, live: true, aimed, hit: false, safeCalled: false, called: false, closest: Infinity, seen: Math.random() < seenChance, from: side };
+      const v = throwVelocity(t, at, side, this.throwSpeed());
+      const seenChance = Math.min(0.95, LEVELS[this.level].seen + (this.mode === "round24" ? 0.2 : this.mode === "gather" ? 0.1 : 0));
+      // All Man Yone: each player has their own chance to see it coming; your teammates see as well as at Normal.
+      const seenBy = this.mode === "allman" ? this.crowd().map((_, i) => Math.random() < (i < BALANCE.players ? LEVELS.normal : LEVELS[this.level]).seen) : [];
+      this.ball = { x: t.x, y: t.y, vx: v.x, vy: v.y, live: true, aimed, hit: false, safeCalled: false, called: false, closest: Infinity, seen: Math.random() < seenChance, seenBy, from: side };
       this.holder = null;
       this.tweens.add({ targets: t, scale: 1.3, duration: 90, yoyo: true, ease: "Quad.easeOut" });
       sound.whoosh();
@@ -360,10 +506,11 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
       this.windup -= dt;
       this.holdTime += dt;
       const thrower = this.throwers[this.holder];
+      const tune = this.tune();
       const safe = this.isSafe();
       if (this.wasSafe && !safe) {
         // The dodger has just broken from a circle: give the thrower a moment to react, shown by the wind-up ring.
-        const [lo, hi] = BALANCE.reaction;
+        const [lo, hi] = tune.reaction;
         this.windupTotal = lo + Math.random() * (hi - lo);
         this.windup = Math.max(this.windup, this.windupTotal);
       }
@@ -374,8 +521,10 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
         if (this.holdTime > BALANCE.holdBeforePass) this.throwBall(this.holder, this.throwers[opposite(this.holder)], false);
         return;
       }
-      const lead = Math.random() < BALANCE.leadChance ? interceptPoint(thrower, this.dodger(), this.velocity, BALANCE.ballSpeed) : { x: this.dodger().x, y: this.dodger().y };
-      const angle = Math.atan2(lead.y - thrower.y, lead.x - thrower.x) + (Math.random() * 2 - 1) * BALANCE.aimError;
+      if (this.mode === "allman" && this.out[this.mark]) this.chooseMark();
+      const target = this.focus();
+      const lead = Math.random() < tune.leadChance ? interceptPoint(thrower, target, this.focusVelocity(), tune.ballSpeed) : { x: target.x, y: target.y };
+      const angle = Math.atan2(lead.y - thrower.y, lead.x - thrower.x) + (Math.random() * 2 - 1) * tune.aimError;
       const d = dist(thrower, lead);
       this.throwBall(this.holder, { x: thrower.x + Math.cos(angle) * d, y: thrower.y + Math.sin(angle) * d }, true);
     }
@@ -390,6 +539,10 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
       if (!ball) return;
       stepBall(ball, dt);
       if (!ball.live || this.pendingOut) return;
+      if (this.mode === "allman") {
+        const struck = this.crowd().findIndex((p, i) => !this.out[i] && dist(ball, p) < BALANCE.hitRadius);
+        if (struck >= 0) { this.crowdHit(ball, struck); return; }
+      }
       const dodger = this.dodger();
       const d = dist(ball, dodger);
       if (d < BALANCE.hitRadius) {
@@ -408,11 +561,17 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
       }
     }
 
-    private hit(ball: Flight, dodger: Arc) {
+    // The ball glances off whoever it hit and still rolls on to the far end.
+    private glance(ball: Flight) {
       ball.hit = true;
       ball.live = false;
-      // The ball glances off and still rolls on to the far end.
       ball.vx *= 0.55; ball.vy = -ball.vy * 0.5 + (Math.random() - 0.5) * 80;
+    }
+
+    private hit(ball: Flight, dodger: Arc) {
+      this.glance(ball);
+      // Gather: a cap being carried is lost with the player.
+      this.carrying = false;
       sound.touch();
       ripple(this, dodger.x, dodger.y, 0xffd166);
       this.cameras.main.shake(260, 0.006);
@@ -427,30 +586,114 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
 
     private checkCircles(dt: number) {
       const dodger = this.dodger();
-      const here = circleAt(dodger);
-      if (here !== this.circle) { this.circle = here; this.circleTime = 0; } else if (here !== null) {
-        const before = this.circleTime;
-        this.circleTime += dt;
-        if (before < BALANCE.circleSeconds && this.circleTime >= BALANCE.circleSeconds) {
-          floatText(this, "MOVE ON!", dodger.x, dodger.y - 26, "#ffb59e");
-          if (this.humanDodges) this.notice("Your circle time is up — you are not safe here any more. Run!", "danger");
-        }
+      const limit = this.tune().circleSeconds;
+      const before = this.baseTime;
+      this.baseTime += dt;
+      if (before < limit && this.baseTime >= limit && this.inBase()) {
+        floatText(this, "MOVE ON!", dodger.x, dodger.y - 26, "#ffb59e");
+        if (this.humanDodges) this.notice("Your circle time is up — you are not safe here any more. Run!", "danger");
       }
-      if (here === targetCircle(this.round)) {
-        const done = this.round;
-        this.award(1, CIRCLES[here], done === BALANCE.rounds ? "24!" : String(done));
-        if (done === BALANCE.rounds) { this.completeRun(); return; }
-        this.round++;
-        this.circleTime = 0;
-        this.publish();
+      const target = targetCircle(this.round);
+      if (circleAt(dodger) !== target) return;
+      const done = this.round;
+      this.base = target;
+      this.baseTime = 0;
+      this.cpuRunning = false;
+      if (done === BALANCE.rounds) { this.award(1 + BALANCE.homeBonus, CIRCLES[target], `HOME +${1 + BALANCE.homeBonus}`); this.completeRun(); return; }
+      const lapDone = done % 4 === 0;
+      this.award(1, CIRCLES[target], lapDone ? `LAP ${lapOf(done)}!` : String(done));
+      this.round++;
+      if (this.round === BALANCE.rounds) {
+        sound.whistle();
+        this.notice(this.humanDodges ? "Round 24 — the home stretch! Run back to the middle." : "Their runner is on the home stretch. Stop them!", this.humanDodges ? "success" : "danger");
+      } else if (lapDone && this.humanDodges) {
+        this.notice(`Lap ${lapOf(done)} of 6 done. The throwers are sharper now, and a circle keeps you safe for ${Math.round(this.tune().circleSeconds * 10) / 10}s.`, "success");
       }
+      this.publish();
     }
 
     private completeRun() {
       sound.cheer();
       burst(this, START.x, START.y);
-      this.notice(this.humanDodges ? `All 24 rounds! Player ${this.turn + 1} made it home.` : "They ran all 24 rounds.", this.humanDodges ? "success" : "danger");
+      const gather = this.mode === "gather";
+      const mine = gather ? `All ${this.gathered} caps in! Player ${this.turn + 1} cleared the field.` : `All 24 rounds! Player ${this.turn + 1} made it home.`;
+      this.notice(this.humanDodges ? mine : gather ? "They brought in every cap." : "They ran all 24 rounds.", this.humanDodges ? "success" : "danger");
       this.nextDodger(false);
+    }
+
+    // ---- Gather ----
+
+    // Picks up a cap the dodger runs over (one at a time) and banks a carried cap in the middle circle.
+    private checkItems() {
+      const dodger = this.dodger();
+      if (!this.carrying) {
+        const index = this.items.findIndex((item) => dist(item, dodger) < GATHER.pickupRadius);
+        if (index < 0) return;
+        this.items.splice(index, 1);
+        this.carrying = true;
+        sound.step();
+        return;
+      }
+      if (dist(dodger, DROP) > DROP.r) return;
+      this.carrying = false;
+      this.gathered++;
+      const total = LEVELS[this.level].items;
+      if (this.gathered < total) { this.award(1, DROP, `${this.gathered}/${total}`); return; }
+      this.award(1 + GATHER.clearBonus, DROP, `ALL IN +${1 + GATHER.clearBonus}`);
+      this.completeRun();
+    }
+
+    // ---- All Man Yone ----
+
+    private crowdHit(ball: Flight, index: number) {
+      this.glance(ball);
+      const p = this.crowd()[index];
+      const mine = index < BALANCE.players;
+      this.out[index] = true;
+      sound.touch();
+      ripple(this, p.x, p.y, 0xffd166);
+      floatText(this, "OUT!", p.x, p.y - 24, mine ? "#ffb59e" : "#d7ec83");
+      this.tweens.add({ targets: p, alpha: 0.2, scale: 0.7, duration: 320, ease: "Quad.easeOut" });
+      if (index === this.turn) { this.cameras.main.shake(220, 0.005); this.cameras.main.flash(140, 255, 140, 110); }
+      const winner = roundWinner(this.out);
+      if (winner) { this.endRound(winner); return; }
+      const left = standing(this.out);
+      if (index === this.turn) {
+        // You were hit: take over the next teammate still in.
+        this.turn = this.out.findIndex((o, i) => !o && i < BALANCE.players);
+        this.trail = [];
+        this.velocity = { x: 0, y: 0 };
+        this.highlightMine();
+        this.notice(left.you === 1 ? "You are hit! You take over your last player — last man standing!" : "You are hit! You take over a teammate.", "danger");
+      } else if (left.you === 1 && mine) this.notice("Your team is down to one. Last man standing — it is all on you!", "danger");
+      else if (left.them === 1 && !mine) this.notice("Their team is down to their last man. Keep dodging!", "success");
+      else this.notice(mine ? `A teammate is out. Your team ${left.you}, theirs ${left.them}.` : `One of theirs is out! Your team ${left.you}, theirs ${left.them}.`, mine ? "danger" : "success");
+      this.publish();
+    }
+
+    // The round goes to the team still standing; the match to the first team to win enough rounds.
+    private endRound(winner: "you" | "them") {
+      this.active = false;
+      input.current = { x: 0, y: 0 };
+      this.scores[winner]++;
+      const { you, them } = this.scores;
+      if (this.scores[winner] >= ALLMAN.winsNeeded) {
+        this.over = true;
+        if (winner === "you") { sound.cheer(); burst(this, START.x, START.y); } else sound.lose();
+        this.notice(winner === "you" ? `Your team is the last standing — you win the match, ${you}–${them}!` : `Their team is the last standing. They win the match, ${them}–${you}.`, winner === "you" ? "success" : "danger");
+        this.publish();
+        emit("balance-playing", false);
+        return;
+      }
+      if (winner === "you") sound.cheer(); else sound.whistle();
+      this.notice(winner === "you" ? `Your team wins round ${this.inning}! Rounds: you ${you}, them ${them}.` : `Their team wins round ${this.inning}. Rounds: you ${you}, them ${them}.`, winner === "you" ? "success" : "danger");
+      this.publish();
+      this.nextUp = this.time.delayedCall(1800, () => {
+        this.inning++;
+        this.resetInning();
+        this.active = true;
+        this.notice(this.playHint(), "ready");
+      });
     }
 
     // ---- Outs and innings ----
@@ -500,6 +743,12 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
       this.circleArt.clear();
       this.circleLabels.forEach((t) => t.destroy());
       this.circleLabels = [];
+      if (this.mode === "gather") {
+        this.circleArt.fillStyle(0xe0e8bb, 0.14).fillCircle(DROP.x, DROP.y, DROP.r);
+        this.circleArt.lineStyle(3, 0xf4f1d0, 0.85).strokeCircle(DROP.x, DROP.y, DROP.r);
+        this.circleLabels.push(this.add.text(DROP.x, DROP.y + DROP.r + 10, "BRING CAPS HERE", { fontFamily: "Arial", fontSize: "10px", color: "#f4f1d0", fontStyle: "bold" }).setOrigin(0.5).setAlpha(0.8).setDepth(1));
+        return;
+      }
       if (this.mode !== "round24") return;
       CIRCLES.forEach((c, i) => {
         this.circleArt.fillStyle(0xe0e8bb, 0.1).fillCircle(c.x, c.y, c.r);
@@ -514,18 +763,38 @@ export function createBalanceScene(Phaser: typeof PhaserNamespace, input: { curr
       }
     }
 
-    // The next circle glows, and the circle the dodger stands in shows how much safe time is left.
+    // The next circle glows (gold for the home stretch), and the base circle shows how much safe time is left.
     private drawCircleState() {
       if (this.mode !== "round24" || !this.started) return;
-      const target = CIRCLES[targetCircle(this.round)];
+      const targetIndex = targetCircle(this.round);
+      const target = CIRCLES[targetIndex];
       const pulse = 0.55 + Math.sin(this.time.now / 180) * 0.25;
-      this.layer.lineStyle(4, 0xd7ec83, pulse).strokeCircle(target.x, target.y, target.r + 4);
-      if (this.circle !== null) {
-        const c = CIRCLES[this.circle];
-        const left = 1 - this.circleTime / BALANCE.circleSeconds;
+      const home = this.round === BALANCE.rounds;
+      this.layer.lineStyle(home ? 6 : 4, home ? 0xf4df79 : 0xd7ec83, pulse).strokeCircle(target.x, target.y, target.r + 4);
+      this.circleLabels.forEach((label, i) => label.setAlpha(i === targetIndex ? 0.95 : i === 0 ? 0.6 : 0.3));
+      if (this.inBase()) {
+        const c = CIRCLES[this.base];
+        const left = 1 - this.baseTime / this.tune().circleSeconds;
         if (left > 0) this.layer.lineStyle(4, left < 0.3 ? 0xff9b7a : 0x8fd3f0, 0.9).beginPath().arc(c.x, c.y, c.r - 5, -Math.PI / 2, -Math.PI / 2 + left * Math.PI * 2).strokePath();
         else this.layer.lineStyle(3, 0xff6b5a, pulse).strokeCircle(c.x, c.y, c.r - 5);
       }
+    }
+
+    // Gather: the caps on the field, the one being carried, and the middle circle lit up while it is wanted.
+    private drawItems() {
+      if (this.mode !== "gather" || !this.started) return;
+      const cap = (x: number, y: number, size: number) => {
+        this.layer.fillStyle(0x0b2a1f, 0.25).fillEllipse(x + 2, y + 4, size * 2.2, size);
+        this.layer.fillStyle(0xe9c25a, 1).fillCircle(x, y, size);
+        this.layer.lineStyle(2, 0x8a6a22, 1).strokeCircle(x, y, size);
+        this.layer.fillStyle(0xfff1b8, 0.8).fillCircle(x - size * 0.3, y - size * 0.3, size * 0.3);
+      };
+      this.items.forEach((item) => cap(item.x, item.y, 6));
+      if (!this.carrying) return;
+      const d = this.dodger();
+      cap(d.x + 11, d.y - 13, 5);
+      const pulse = 0.55 + Math.sin(this.time.now / 180) * 0.25;
+      this.layer.lineStyle(4, 0xd7ec83, pulse).strokeCircle(DROP.x, DROP.y, DROP.r + 4);
     }
 
     private drawBall() {
