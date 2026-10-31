@@ -8,6 +8,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Match } from "@salone/games/tintanto/match";
 import { chooseMove } from "@salone/games/tintanto/rules";
 import { EVENTS, type Guest, type Reply, type RoomView } from "@salone/games/online/protocol";
+import type { LudoOptions } from "@salone/games/online/games";
+import type { LudoMatch } from "@salone/games/ludo/match";
+import { plays } from "@salone/games/ludo/rules";
 import { AppModule } from "./app.module";
 import type { Config } from "./config";
 
@@ -29,7 +32,7 @@ async function startServer() {
 
 beforeAll(async () => {
   mongo = await MongoMemoryServer.create();
-  config = { port: 0, mongoUri: mongo.getUri(), dbName: "salone_test", roomHours: 1, cpuDelayMs: 30 };
+  config = { port: 0, mongoUri: mongo.getUri(), dbName: "salone_test", roomHours: 1, cpuDelayMs: 30, awaySeconds: 30, timeScale: 0.01 };
   await startServer();
 }, 180_000);
 
@@ -43,8 +46,8 @@ afterAll(async () => {
 async function connect(name: string, saved?: Guest) {
   const socket = io(url, { transports: ["websocket"], forceNew: true, reconnection: false });
   sockets.push(socket);
-  const updates: RoomView<Match>[] = [];
-  socket.on(EVENTS.update, (view: RoomView<Match>) => updates.push(view));
+  const updates: RoomView[] = [];
+  socket.on(EVENTS.update, (view: RoomView) => updates.push(view));
   const guest = await call<Guest>(socket, EVENTS.hello, { name, guestId: saved?.guestId, token: saved?.token });
   return { socket, guest, updates };
 }
@@ -61,11 +64,11 @@ async function refused(socket: Socket, event: string, body?: unknown): Promise<s
   return answer.ok ? "" : answer.error;
 }
 
-// Waits until a screen has received an update that passes `test`.
-async function until(updates: RoomView<Match>[], test: (view: RoomView<Match>) => boolean, ms = 5000) {
+// Waits until a screen has received an update that passes `test` (a Tin Tan To room unless `V` says otherwise).
+async function until<V = RoomView<Match>>(updates: RoomView[], test: (view: V) => boolean, ms = 5000): Promise<V> {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
-    const found = [...updates].reverse().find(test);
+    const found = [...updates].reverse().map((view) => view as V).find(test);
     if (found) return found;
     await new Promise((r) => setTimeout(r, 20));
   }
@@ -188,5 +191,70 @@ describe("rooms", () => {
     const move = chooseMove(view.match!.board, "X", "hard")!;
     await call(back.socket, EVENTS.act, { action: { type: "move", move } });
     await until(back.updates, (v) => v.match?.moves === 4 || !!v.match?.result);
+  });
+});
+
+describe("Ludo rooms", () => {
+  type LudoView = RoomView<LudoMatch, LudoOptions>;
+
+  it("lets the host choose the players and house rules, resizing the seats but never removing a player", async () => {
+    const host = await connect("Host");
+    const friend = await connect("Friend");
+    const room = await call<LudoView>(host.socket, EVENTS.create, { game: "ludo", options: { players: 2, rules: { taxi: true } } });
+    expect(room.seats).toHaveLength(2);
+    expect(room.options.rules.taxi).toBe(true);
+    const four = await call<LudoView>(host.socket, EVENTS.options, { options: { players: 4 } });
+    expect(four.seats).toHaveLength(4);
+    expect(four.options.rules.taxi).toBe(true);
+    await call(host.socket, EVENTS.addCpu, { seat: 1, level: "hard" });
+    const joined = await call<LudoView>(friend.socket, EVENTS.join, { code: room.code });
+    expect(joined.seats.findIndex((s) => s.guestId === friend.guest.guestId)).toBe(2);
+    expect(await refused(host.socket, EVENTS.options, { options: { players: 2 } })).toMatch(/Friend is in seat 3/);
+    expect(await refused(friend.socket, EVENTS.options, { options: { players: 3 } })).toMatch(/host/);
+    const three = await call<LudoView>(host.socket, EVENTS.options, { options: { players: 3, rules: { poison: true } } });
+    expect(three.seats.map((s) => s.cpu || !!s.guestId)).toEqual([true, true, true]);
+    expect(three.options.rules).toMatchObject({ taxi: true, poison: true });
+  });
+
+  it("rolls the dice on the server, refuses out-of-turn play, and lets a computer seat take its turns", async () => {
+    const host = await connect("Host");
+    const room = await call<LudoView>(host.socket, EVENTS.create, { game: "ludo", options: { players: 2 } });
+    await call(host.socket, EVENTS.addCpu, { seat: 1, level: "normal" });
+    let view = await call<LudoView>(host.socket, EVENTS.start);
+    expect(view.match?.game.seats).toEqual(["red", "blue"]);
+    expect(await refused(host.socket, EVENTS.act, { action: { type: "move", play: { token: 0, die: 0 } } })).toMatch(/Roll the dice first/);
+    // Keep taking red's turns until blue (the computer) has played some of its own.
+    for (let i = 0; i < 60 && !(view.match!.events.some((e) => e.colour === "blue" && e.kind === "rolled")); i++) {
+      if (view.match!.game.turn === 0) {
+        const options = plays(view.match!.game);
+        view = await call<LudoView>(host.socket, EVENTS.act, { action: view.match!.game.dice.length ? { type: "move", play: options[0] } : { type: "roll" } });
+      } else view = await until<LudoView>(host.updates, (v) => v.version > view.version);
+    }
+    const blue = view.match!.events.find((e) => e.colour === "blue" && e.kind === "rolled");
+    expect(blue).toBeDefined();
+    expect((await savedRoom(room.code)).doc?.options).toMatchObject({ players: 2 });
+  });
+
+  it("plays for a player whose turn timer runs out", async () => {
+    const host = await connect("Host");
+    await call(host.socket, EVENTS.create, { game: "ludo", options: { players: 2, rules: { timer: true } } });
+    await call(host.socket, EVENTS.addCpu, { seat: 1 });
+    const started = await call<LudoView>(host.socket, EVENTS.start);
+    expect(started.timer).toMatchObject({ seat: 0, reason: "timeout" });
+    expect(started.timer!.endsIn).toBeGreaterThan(0);
+    // Turn limits are scaled down in these tests, so red's 30 seconds pass in a moment.
+    const played = await until<LudoView>(host.updates, (v) => !!v.match?.events.some((e) => e.kind === "stood-in" && e.colour === "red" && e.reason === "timeout"));
+    expect(played).toBeDefined();
+  });
+
+  it("plays on for a player who is away on their turn while others are still there", async () => {
+    const host = await connect("Host");
+    const friend = await connect("Friend");
+    const room = await call<LudoView>(host.socket, EVENTS.create, { game: "ludo", options: { players: 2 } });
+    await call(friend.socket, EVENTS.join, { code: room.code });
+    await call(host.socket, EVENTS.start);
+    host.socket.disconnect();
+    const played = await until<LudoView>(friend.updates, (v) => !!v.match?.events.some((e) => e.kind === "stood-in" && e.colour === "red" && e.reason === "away"));
+    expect(played).toBeDefined();
   });
 });

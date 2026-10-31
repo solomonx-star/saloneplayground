@@ -18,7 +18,8 @@ The game server (for online play) needs a MongoDB database. Copy `apps/server/.e
 - Tin Tan To can be played online: choose **Online** in its PLAY menu. Enter a name (no sign-up), then create a room and share its four-letter code, or join a friend's room with theirs. The host can give empty seats to computer players and starts the game. Each player sees the board from their own side.
 - The game server checks every move with the same rules as the one-device game, saves each room to MongoDB after every change (so a restart carries on where it was) and records every finished round. A player whose connection drops keeps their seat and is shown as away; reloading the page rejoins the room. Leaving a game hands your seat to a computer player. Rooms are deleted 12 hours after their last change.
 - Phones on the same Wi-Fi can play too: open the web app at this computer's network address (for example `http://192.168.1.20:3000`); the page finds the game server on port 4000 of the same address. Set `NEXT_PUBLIC_GAME_SERVER_URL` to use a server elsewhere.
-- Coming next: Ludo and Draft online, and party play (one shared screen showing the board, phones as controllers).
+- Ludo can be played online too: choose **Online** in its PLAY menu. Before creating a room (or in the lobby, as host) choose 2–4 players and any of the six house rules; everyone else sees the rules but cannot change them. Friends join with the code and empty seats can go to computer players. The game server rolls the dice and runs the house rules, the Turn Timer and the computer players; every screen plays each roll and move back with the same animations as Ludo on one device, with players' names in their yards. If a player is away (disconnected) on their turn, the game plays for them after 30 seconds while someone else is still connected. When the game is won, PLAY AGAIN starts a rematch with the same settings.
+- Coming next: Draft online, and party play (one shared screen showing the board, phones as controllers).
 
 ## Project layout
 
@@ -28,7 +29,7 @@ The repository is an npm workspace, ready for the version 2 game server:
 | --- | --- |
 | `apps/web` | The Next.js app: the games shelf and every game screen. Paths below starting `src/` are inside it. |
 | `apps/server` | The game server for online and party play: NestJS with Socket.IO, storing guests, rooms and finished rounds in MongoDB (`players`, `rooms`, `matches`). |
-| `packages/games` (`@salone/games`) | Rules and computer players for the turn-based games (Draft, Ludo, Tin Tan To), plus the online protocol (`online/protocol.ts`) and the description of each game the server runs (`online/games.ts`). Plain TypeScript with no React or Phaser, so the web app and the game server can share them. |
+| `packages/games` (`@salone/games`) | Rules and computer players for the turn-based games (Draft, Ludo, Tin Tan To), the matches as played online (`tintanto/match.ts`, `ludo/match.ts`, which records each roll and move so every screen can show it), plus the online protocol (`online/protocol.ts`) and the description of each game the server runs (`online/games.ts`). Plain TypeScript with no React or Phaser, so the web app and the game server can share them. |
 
 ## Balance Ball
 
@@ -98,7 +99,7 @@ The repository is an npm workspace, ready for the version 2 game server:
 - 2, 3 or 4 players (two players sit opposite each other: Players 1 and 3). Play against the computer (you are red) or pass and play on one device.
 - Levels: the computer scores each move (captures, getting home, getting out, staying out of reach, avoiding poison arrows and the hanging square) and looks one move ahead to play its two dice in the best order; Easy and Normal add randomness to those scores. It is still a dice game, so no level wins every time.
 - Tap the dice in the middle of the board or ROLL DICE (or press Space) to roll. Tokens glow for the die in use; when the two dice can move different tokens, tap a die to switch (or press D), then tap a glowing token (or press 1–4). With only one possible move it is made for you; with none, the roll ends.
-- Code: rules, house rules and computer player in `packages/games/src/ludo/rules.ts`, board layout in `ludo/board.ts`, tests in `ludo/ludo.test.ts`, screen in `apps/web/src/components/LudoGame.tsx`.
+- Code: rules, house rules and computer player in `packages/games/src/ludo/rules.ts`, board layout in `ludo/board.ts`, the online match in `ludo/match.ts`, tests in `ludo/ludo.test.ts` and `online/online.test.ts`. Screens in `apps/web/src/components/`: `LudoGame.tsx` (one device), `ludo/LudoOnline.tsx` (online), sharing `ludo/LudoBoard.tsx`, `ludo/useLudoControls.ts`, `ludo/RuleChips.tsx` and `ludo/TurnClock.tsx`; `ludo/usePlayback.ts` animates the server's moves.
 
 ## Draft
 

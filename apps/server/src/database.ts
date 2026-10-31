@@ -17,6 +17,8 @@ export type RoomDoc = {
   hostId: string;
   seats: SeatDoc[];
   status: RoomStatus;
+  // The settings the host chose in the lobby (for Ludo: the number of players and the house rules).
+  options: unknown;
   match: unknown;
   version: number;
   createdAt: Date;
@@ -40,6 +42,7 @@ const rooms = new Schema<RoomDoc>({
   hostId: String,
   seats: [seat],
   status: String,
+  options: { type: Schema.Types.Mixed, default: {} },
   match: { type: Schema.Types.Mixed, default: null },
   version: Number,
   createdAt: Date,

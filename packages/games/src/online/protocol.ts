@@ -1,19 +1,24 @@
 // The messages between the game screens and the game server, for party and online play. The server sends each
 // room's state as a RoomView after every change; screens send requests and get a Reply back.
 
-export type GameId = "tintanto";
+export type GameId = "tintanto" | "ludo";
 export type RoomStatus = "lobby" | "playing";
 
 // A seat at the table: a guest, a computer player, or empty (no guestId and not cpu).
 export type Seat = { guestId: string | null; name: string; cpu: boolean; level: string; connected: boolean };
 
-export type RoomView<M = unknown> = {
+export type RoomView<M = unknown, O = unknown> = {
   code: string;
   game: GameId;
   hostId: string;
   seats: Seat[];
   status: RoomStatus;
+  // The settings the host chose in the lobby (for Ludo: the number of players and the house rules).
+  options: O;
   match: M | null;
+  // When the player to move will be played for (turn timer, or away on their turn): their seat and the
+  // milliseconds left when this view was sent.
+  timer: { seat: number; endsIn: number; reason: "timeout" | "away" } | null;
   // Goes up by one with every change, so a screen can ignore an update older than the one it has.
   version: number;
 };
@@ -28,6 +33,7 @@ export const EVENTS = {
   create: "room:create",
   join: "room:join",
   leave: "room:leave",
+  options: "room:options",
   addCpu: "room:add-cpu",
   removeCpu: "room:remove-cpu",
   start: "room:start",

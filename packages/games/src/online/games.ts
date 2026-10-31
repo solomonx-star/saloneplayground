@@ -1,35 +1,49 @@
+import { canRoll, makePlay, newLudoMatch, rematch, rollDice, standIn, type LudoMatch, type StandInReason } from "../ludo/match";
+import { chooseMove as chooseLudoMove, LEVELS as LUDO_LEVELS, NO_RULES, RULES, TURN_SECONDS, type Level as LudoLevel, type Play, type Rule, type Rules } from "../ludo/rules";
 import { applyMove, canMove, newMatch, nextRound, type Match } from "../tintanto/match";
 import { chooseMove, LEVELS as TIN_TAN_TO_LEVELS, type Level, type Move } from "../tintanto/rules";
 import type { GameId } from "./protocol";
 
 // What the game server needs to know to run a game it otherwise knows nothing about. Everything here is pure: the
-// server keeps the match, passes in each action and saves what comes back.
-export type OnlineGame<M, A> = {
+// server keeps the match, passes in each action (and random numbers, for dice) and saves what comes back.
+export type OnlineGame<M, A, O> = {
   label: string;
-  // Number of seats at the table, all of which must be filled (by guests or computer players) to start.
-  seats: number;
   levels: Record<string, { label: string }>;
-  start(): M;
+  // Settings the host chooses in the lobby, and how to read them safely from a request.
+  defaultOptions: O;
+  options(requested: unknown, current: O): O;
+  // Number of seats at the table, all of which must be filled (by guests or computer players) to start.
+  seats(options: O): number;
+  start(options: O): M;
   // The seat to act next, or null when nobody needs to (for example between rounds).
   turn(match: M): number | null;
   // Applies an action sent by the guest in `seat`: the new match, or why the action was refused.
-  act(match: M, seat: number, action: A): M | string;
-  // The move a computer player in `seat` makes, or null if it has nothing to do.
+  act(match: M, seat: number, action: A, random?: () => number): M | string;
+  // The action a computer player in `seat` takes, or null if it has nothing to do.
   cpuAction(match: M, seat: number, level: string): A | null;
-  // Whether the current round has finished, so its result can be recorded.
+  // Seconds the player to move has before the game plays for them, or null for no limit.
+  timeLimit(match: M): number | null;
+  // Whether to play for a player who is away (disconnected) on their turn, rather than wait for them.
+  playsForAway: boolean;
+  // Plays one step for the player to move, who ran out of time or is away.
+  standIn(match: M, reason: StandInReason, random?: () => number): M;
+  // Whether the current round or game has finished, so its result can be recorded.
   roundOver(match: M): boolean;
 };
 
-// Tin Tan To: seat 0 plays X (blue, bottom row), seat 1 plays O (orange, top row). Between rounds any player
-// can start the next one.
+// ---- Tin Tan To ----
+
+// Seat 0 plays X (blue, bottom row), seat 1 plays O (orange, top row). Between rounds any player can start the next.
 export type TinTanToAction = { type: "move"; move: Move } | { type: "next" };
 const MARKS = ["X", "O"] as const;
 
-export const tinTanTo: OnlineGame<Match, TinTanToAction> = {
+export const tinTanTo: OnlineGame<Match, TinTanToAction, Record<string, never>> = {
   label: "Tin Tan To",
-  seats: 2,
   levels: TIN_TAN_TO_LEVELS,
-  start: newMatch,
+  defaultOptions: {},
+  options: () => ({}),
+  seats: () => 2,
+  start: () => newMatch(),
   turn: (match) => (match.result ? null : MARKS.indexOf(match.toMove)),
   act(match, seat, action) {
     if (action?.type === "next") return match.result ? nextRound(match) : "The round is not over yet.";
@@ -44,8 +58,56 @@ export const tinTanTo: OnlineGame<Match, TinTanToAction> = {
     const move = chooseMove(match.board, match.toMove, (level in TIN_TAN_TO_LEVELS ? level : "normal") as Level);
     return move ? { type: "move", move } : null;
   },
+  timeLimit: () => null,
+  // A thinking game: wait for a player who drops out rather than move for them.
+  playsForAway: false,
+  standIn: (match) => match,
   roundOver: (match) => !!match.result,
 };
 
-export const ONLINE_GAMES: Record<GameId, OnlineGame<unknown, unknown>> = { tintanto: tinTanTo };
+// ---- Ludo ----
+
+// Seat i plays the i-th colour of the game (Players 1 to 4 in turn order). The server rolls the dice.
+export type LudoAction = { type: "roll" } | { type: "move"; play: Play } | { type: "rematch" };
+export type LudoOptions = { players: number; rules: Rules };
+const die = (random: () => number) => 1 + Math.floor(random() * 6);
+
+export const ludo: OnlineGame<LudoMatch, LudoAction, LudoOptions> = {
+  label: "Ludo",
+  levels: LUDO_LEVELS,
+  defaultOptions: { players: 4, rules: NO_RULES },
+  options(requested, current) {
+    const asked = (requested ?? {}) as Partial<LudoOptions>;
+    const players = [2, 3, 4].includes(asked.players as number) ? (asked.players as number) : current.players;
+    const rules = { ...current.rules };
+    for (const rule of Object.keys(RULES) as Rule[]) if (typeof asked.rules?.[rule] === "boolean") rules[rule] = asked.rules[rule];
+    return { players, rules };
+  },
+  seats: (options) => options.players,
+  start: (options) => newLudoMatch(options.players, options.rules),
+  turn: (match) => (match.game.winner ? null : match.game.turn),
+  act(match, seat, action, random = Math.random) {
+    if (action?.type === "rematch") return match.game.winner ? rematch(match) : "The game is not over yet.";
+    if (match.game.winner) return "The game is over.";
+    if (seat !== match.game.turn) return "It is not your turn.";
+    if (action?.type === "roll") return canRoll(match) ? rollDice(match, die(random), die(random)) : "Play your dice first.";
+    if (action?.type === "move") {
+      if (canRoll(match)) return "Roll the dice first.";
+      return makePlay(match, action.play) ?? "That move is not allowed.";
+    }
+    return "Unknown action.";
+  },
+  cpuAction(match, seat, level) {
+    if (match.game.winner || seat !== match.game.turn) return null;
+    if (canRoll(match)) return { type: "roll" };
+    const play = chooseLudoMove(match.game, (level in LUDO_LEVELS ? level : "normal") as LudoLevel);
+    return play ? { type: "move", play } : null;
+  },
+  timeLimit: (match) => (match.game.rules.timer && !match.game.winner ? TURN_SECONDS : null),
+  playsForAway: true,
+  standIn: (match, reason, random = Math.random) => standIn(match, reason, die(random), die(random)),
+  roundOver: (match) => !!match.game.winner,
+};
+
+export const ONLINE_GAMES: Record<GameId, OnlineGame<unknown, unknown, unknown>> = { tintanto: tinTanTo, ludo };
 export const isGameId = (value: unknown): value is GameId => typeof value === "string" && value in ONLINE_GAMES;

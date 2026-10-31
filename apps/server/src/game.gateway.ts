@@ -48,7 +48,7 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
     return reply(async () => {
       const guest = this.guest(socket);
       await this.leaveRoom(socket);
-      const view = await this.rooms.create(guest, body?.game, socket.id);
+      const view = await this.rooms.create(guest, body?.game, body?.options, socket.id);
       await this.enter(socket, view.code);
       return view;
     });
@@ -75,6 +75,11 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
       this.data(socket).code = undefined;
       return true;
     });
+  }
+
+  @SubscribeMessage(EVENTS.options)
+  options(@ConnectedSocket() socket: Socket, @MessageBody() body: Body) {
+    return reply(() => this.rooms.setOptions(this.guest(socket), this.data(socket).code, body?.options));
   }
 
   @SubscribeMessage(EVENTS.addCpu)

@@ -10,6 +10,11 @@ export type Config = {
   roomHours: number;
   // How long a computer player waits before moving, so people can follow the game.
   cpuDelayMs: number;
+  // How long to wait for a player who is away (disconnected) on their turn before playing for them, in games that
+  // play on (Ludo).
+  awaySeconds: number;
+  // Multiplies every turn and away time limit; 1 in real play (tests make it small so timers run out quickly).
+  timeScale: number;
 };
 
 export const CONFIG = Symbol("config");
@@ -23,5 +28,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     dbName: env.MONGODB_DB?.trim() || "salone_dev",
     roomHours: Number(env.ROOM_HOURS ?? 12),
     cpuDelayMs: Number(env.CPU_DELAY_MS ?? 700),
+    awaySeconds: Number(env.AWAY_SECONDS ?? 30),
+    timeScale: 1,
   };
 }

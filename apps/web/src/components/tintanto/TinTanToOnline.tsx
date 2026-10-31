@@ -4,25 +4,19 @@ import { useEffect, useState } from "react";
 import { MUTED_KEY, readFlag, writeFlag } from "@/components/preferences";
 import { gameSound as sound } from "@/components/sound";
 import Board, { colour } from "@/components/tintanto/Board";
-import { useRoom } from "@/online/useRoom";
+import { OnlineEntry, OnlineNotices, RoomCode } from "@/online/OnlineEntry";
+import { useRoom, type OnlineRoom } from "@/online/useRoom";
 import type { Match } from "@salone/games/tintanto/match";
 import { DRAW_RULES, LEVELS, NEIGHBOURS, type Level, type Mark } from "@salone/games/tintanto/rules";
-import { MAX_NAME, ROOM_CODE, type Guest, type RoomView } from "@salone/games/online/protocol";
+import type { RoomView } from "@salone/games/online/protocol";
 
 // Tin Tan To online: each player on their own device. Create a room and share its code, or join a friend's room
 // with theirs; empty seats can be given to computer players. Seat 1 plays blue (X), seat 2 orange (O).
 const MARKS: Mark[] = ["X", "O"];
 
-// The name this device last played under, to fill in the form.
-function savedName() {
-  try { return (JSON.parse(window.localStorage.getItem("salone-guest") ?? "null") as Guest | null)?.name ?? ""; } catch { return ""; }
-}
-
 export default function TinTanToOnline({ onBack, onLocal }: { onBack: () => void; onLocal: () => void }) {
   const online = useRoom<Match>("tintanto");
   // This screen only renders after a click, so storage can be read during the first render.
-  const [name, setName] = useState(savedName);
-  const [code, setCode] = useState("");
   const [muted, setMuted] = useState(() => readFlag(MUTED_KEY));
   const { room, guest } = online;
 
@@ -44,19 +38,10 @@ export default function TinTanToOnline({ onBack, onLocal }: { onBack: () => void
       </div>
     </header>
     <section className="draft-content">
-      {online.connection !== "online" && <p className={`online-status ${online.connection}`} role="status">{online.connection === "connecting" ? "Connecting to the game server…" : "Can't reach the game server. Retrying… (is it running? `npm run dev` starts it with the web app)"}</p>}
-      {online.error && <p className="online-error" role="alert">{online.error} <button onClick={online.clearError} aria-label="Dismiss">×</button></p>}
+      <OnlineNotices connection={online.connection} error={online.error} onDismiss={online.clearError} />
       {!room
-        ? <div className="online-panel">
-          <div className="draft-intro"><p className="eyebrow">PLAY ONLINE</p><h1>Play a friend anywhere.</h1><p>Create a room and share its four-letter code, or join a friend&apos;s room with theirs. No sign-up — just a name.</p></div>
-          <label className="online-field"><span>YOUR NAME</span><input value={name} maxLength={MAX_NAME} onChange={(e) => setName(e.target.value)} placeholder="e.g. Aminata" autoComplete="nickname" /></label>
-          <button className="draft-stop online-big" disabled={online.connection !== "online"} onClick={() => void online.create(name)}>CREATE A ROOM</button>
-          <form className="online-join" onSubmit={(e) => { e.preventDefault(); void online.join(name, code); }}>
-            <label className="online-field"><span>OR JOIN WITH A CODE</span><input value={code} maxLength={4} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))} placeholder="ABCD" autoCapitalize="characters" autoComplete="off" spellCheck={false} /></label>
-            <button type="submit" disabled={online.connection !== "online" || !ROOM_CODE.test(code)}>JOIN</button>
-          </form>
-          <button className="online-link" onClick={onLocal}>← Play on this device instead</button>
-        </div>
+        ? <OnlineEntry title="Play a friend anywhere." blurb="Create a room and share its four-letter code, or join a friend's room with theirs. No sign-up — just a name."
+          connection={online.connection} onCreate={(name) => void online.create(name)} onJoin={(name, code) => void online.join(name, code)} onLocal={onLocal} />
         : room.status === "lobby"
           ? <Lobby room={room} me={guest?.guestId ?? ""} online={online} />
           : <Game room={room} me={guest?.guestId ?? ""} act={online.act} leave={online.leave} />}
@@ -64,7 +49,7 @@ export default function TinTanToOnline({ onBack, onLocal }: { onBack: () => void
   </main>;
 }
 
-type Online = ReturnType<typeof useRoom<Match>>;
+type Online = OnlineRoom<Match>;
 
 // The room before the game: its code to share, the two seats, and (for the host) computer players and Start.
 function Lobby({ room, me, online }: { room: RoomView<Match>; me: string; online: Online }) {
@@ -72,7 +57,7 @@ function Lobby({ room, me, online }: { room: RoomView<Match>; me: string; online
   const host = room.hostId === me;
   const full = room.seats.every((s) => s.guestId || s.cpu);
   return <div className="online-panel">
-    <div className="online-code"><span>ROOM CODE</span><strong>{room.code}</strong><small>Share this code with a friend so they can join.</small></div>
+    <RoomCode code={room.code} />
     <ol className="online-seats">
       {room.seats.map((seat, i) => <li key={i} className={seat.guestId || seat.cpu ? "taken" : ""}>
         <span className={`online-mark ${MARKS[i].toLowerCase()}`} aria-hidden="true" />

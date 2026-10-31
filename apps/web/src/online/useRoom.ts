@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { EVENTS, type GameId, type Guest, type Reply, type RoomView } from "@salone/games/online/protocol";
 
@@ -27,13 +27,22 @@ function write(key: string, value: unknown) {
 }
 
 export type Connection = "connecting" | "online" | "offline";
+export type OnlineRoom<M, O = unknown> = ReturnType<typeof useRoom<M, O>>;
 
-export function useRoom<M>(game: GameId) {
+export function useRoom<M, O = unknown>(game: GameId) {
   const socketRef = useRef<Socket | null>(null);
   const [connection, setConnection] = useState<Connection>("connecting");
   const [guest, setGuest] = useState<Guest | null>(null);
-  const [room, setRoom] = useState<RoomView<M> | null>(null);
+  const [room, setRoomState] = useState<RoomView<M, O> | null>(null);
+  // When the room on show arrived, in this device's clock: the server's timer counts from there.
+  const [receivedAt, setReceivedAt] = useState(0);
   const [error, setError] = useState("");
+
+  // Shows a room from the server, unless it is older than the one on show.
+  const setRoom = useCallback((view: RoomView<M, O> | null) => {
+    setRoomState((shown) => (view && shown && shown.code === view.code && shown.version > view.version ? shown : view));
+    setReceivedAt(Date.now());
+  }, []);
 
   useEffect(() => {
     const socket = io(serverUrl(), { transports: ["websocket"], reconnectionDelayMax: 4000 });
@@ -48,19 +57,17 @@ export function useRoom<M>(game: GameId) {
       setConnection("online");
       const code = read<string>(roomKey(game));
       if (!code) return;
-      const joined: Reply<RoomView<M>> = await socket.emitWithAck(EVENTS.join, { code });
+      const joined: Reply<RoomView<M, O>> = await socket.emitWithAck(EVENTS.join, { code });
       if (joined.ok) setRoom(joined.value);
       else { write(roomKey(game), null); setRoom(null); }
     });
     socket.on("disconnect", () => setConnection("offline"));
     socket.on("connect_error", () => setConnection("offline"));
-    socket.on(EVENTS.update, (view: RoomView<M>) => {
-      // Only this game's rooms, and never go back to an older state than the one shown.
-      if (view.game !== game) return;
-      setRoom((shown) => (shown && shown.code === view.code && shown.version > view.version ? shown : view));
+    socket.on(EVENTS.update, (view: RoomView<M, O>) => {
+      if (view.game === game) setRoom(view);
     });
     return () => { socket.disconnect(); socketRef.current = null; };
-  }, [game]);
+  }, [game, setRoom]);
 
   // Sends a request; on success applies the room it returns, on failure shows the server's message.
   async function request<T>(event: string, body?: unknown): Promise<T | null> {
@@ -77,7 +84,7 @@ export function useRoom<M>(game: GameId) {
     }
   }
 
-  function show(view: RoomView<M> | null) {
+  function show(view: RoomView<M, O> | null) {
     if (!view) return;
     write(roomKey(game), view.code);
     setRoom(view);
@@ -95,14 +102,16 @@ export function useRoom<M>(game: GameId) {
     connection,
     guest,
     room,
+    receivedAt,
     error,
     clearError: () => setError(""),
-    async create(name: string) { if (await rename(name)) show(await request<RoomView<M>>(EVENTS.create, { game })); },
-    async join(name: string, code: string) { if (await rename(name)) show(await request<RoomView<M>>(EVENTS.join, { code })); },
+    async create(name: string, options?: O) { if (await rename(name)) show(await request<RoomView<M, O>>(EVENTS.create, { game, options })); },
+    async join(name: string, code: string) { if (await rename(name)) show(await request<RoomView<M, O>>(EVENTS.join, { code })); },
     async leave() { await request(EVENTS.leave); write(roomKey(game), null); setRoom(null); },
-    addCpu: async (seat: number, level: string) => show(await request<RoomView<M>>(EVENTS.addCpu, { seat, level })),
-    removeCpu: async (seat: number) => show(await request<RoomView<M>>(EVENTS.removeCpu, { seat })),
-    start: async () => show(await request<RoomView<M>>(EVENTS.start)),
-    act: async (action: unknown) => show(await request<RoomView<M>>(EVENTS.act, { action })),
+    setOptions: async (options: Partial<O>) => show(await request<RoomView<M, O>>(EVENTS.options, { options })),
+    addCpu: async (seat: number, level: string) => show(await request<RoomView<M, O>>(EVENTS.addCpu, { seat, level })),
+    removeCpu: async (seat: number) => show(await request<RoomView<M, O>>(EVENTS.removeCpu, { seat })),
+    start: async () => show(await request<RoomView<M, O>>(EVENTS.start)),
+    act: async (action: unknown) => show(await request<RoomView<M, O>>(EVENTS.act, { action })),
   };
 }
