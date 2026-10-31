@@ -1,0 +1,9 @@
+{
+  "name": "@salone/games",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Rules and computer players for the turn-based games, shared by the web app and the game server.",
+  "exports": {
+    "./*": "./src/*.ts"
+  }
+}

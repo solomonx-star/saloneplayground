@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useReducer, useState } from "react";
-import { chooseTurn, LEVELS, type Level } from "@/components/draft/ai";
-import { applyTurn, countPieces, initialBoard, isQuietTurn, legalTurns, moveOnly, other, posKey, samePos, type Board, type Pos, type Side, type Step, type Turn } from "@/components/draft/rules";
+import { chooseTurn, LEVELS, type Level } from "@salone/games/draft/ai";
+import { applyTurn, countPieces, initialBoard, isQuietTurn, legalTurns, moveOnly, other, posKey, samePos, type Board, type Pos, type Side, type Step, type Turn } from "@salone/games/draft/rules";
 import { MUTED_KEY, readFlag, writeFlag } from "@/components/preferences";
 import { gameSound as sound } from "@/components/sound";
 

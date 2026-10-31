@@ -9,7 +9,16 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+Open `http://localhost:3000`. From the project root, `npm test` runs every test, `npm run lint` lints everything, `npm run typecheck` type-checks both workspaces, and `npm run build` builds the web app.
+
+## Project layout
+
+The repository is an npm workspace, ready for the version 2 game server:
+
+| Folder | What it holds |
+| --- | --- |
+| `apps/web` | The Next.js app: the games shelf and every game screen. Paths below starting `src/` are inside it. |
+| `packages/games` (`@salone/games`) | Rules and computer players for the turn-based games (Draft, Ludo, Tin Tan To). Plain TypeScript with no React or Phaser, so the web app and the game server can share them. |
 
 ## Balance Ball
 
@@ -62,7 +71,7 @@ Open `http://localhost:3000`.
 - Play against the computer or two players on one device. The score is kept across rounds, and who moves first swaps every round.
 - Levels: Easy sometimes misses a win and can walk into a loss; Normal always takes a win and never hands one over with a careless move, but still makes mistakes; Hard plays the solved game (every position is worked out in advance) and can only be held to a draw. With best play the game is a draw; opening by moving a corner piece into the centre loses.
 - Tap a piece to pick it up, then tap a lit point to slide it there. Number keys 1–9 tap the points (laid out like a phone keypad, 1 is top left); Escape puts a piece down.
-- Code: rules, solver and computer player in `src/components/tintanto/rules.ts`, tests in `tintanto/tintanto.test.ts`, screen in `TinTanToGame.tsx`.
+- Code: rules, solver and computer player in `packages/games/src/tintanto/rules.ts`, tests in `tintanto/tintanto.test.ts`, screen in `apps/web/src/components/TinTanToGame.tsx`.
 
 ## Ludo
 
@@ -79,7 +88,7 @@ Open `http://localhost:3000`.
 - 2, 3 or 4 players (two players sit opposite each other: Players 1 and 3). Play against the computer (you are red) or pass and play on one device.
 - Levels: the computer scores each move (captures, getting home, getting out, staying out of reach, avoiding poison arrows and the hanging square) and looks one move ahead to play its two dice in the best order; Easy and Normal add randomness to those scores. It is still a dice game, so no level wins every time.
 - Tap the dice in the middle of the board or ROLL DICE (or press Space) to roll. Tokens glow for the die in use; when the two dice can move different tokens, tap a die to switch (or press D), then tap a glowing token (or press 1–4). With only one possible move it is made for you; with none, the roll ends.
-- Code: rules, house rules and computer player in `src/components/ludo/rules.ts`, board layout in `ludo/board.ts`, tests in `ludo/ludo.test.ts`, screen in `LudoGame.tsx`.
+- Code: rules, house rules and computer player in `packages/games/src/ludo/rules.ts`, board layout in `ludo/board.ts`, tests in `ludo/ludo.test.ts`, screen in `apps/web/src/components/LudoGame.tsx`.
 
 ## Draft
 
@@ -90,7 +99,7 @@ Open `http://localhost:3000`.
 - 25 king moves each without a capture is a draw.
 - The computer searches ahead with minimax (Easy 1 turn with mistakes, Normal 3 turns, Hard 4 turns). It may decline a capture that walks into a trap. The level can be changed mid-game.
 - Suggestions, not orders: pieces that can capture glow, HINT marks a recommended move (which may be to decline a capture), the last move is highlighted, and UNDO takes back your last turn or cancels an unfinished chain.
-- Code: rules in `src/components/draft/rules.ts`, computer player in `draft/ai.ts`, tests in `draft/draft.test.ts`, screen in `DraftGame.tsx`.
+- Code: rules in `packages/games/src/draft/rules.ts`, computer player in `draft/ai.ts`, tests in `draft/draft.test.ts`, screen in `apps/web/src/components/DraftGame.tsx`.
 
 ### Code layout (`src/components/touch/`)
 

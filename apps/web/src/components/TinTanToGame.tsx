@@ -3,7 +3,7 @@
 import { useEffect, useReducer, useState } from "react";
 import { MUTED_KEY, readFlag, writeFlag } from "@/components/preferences";
 import { gameSound as sound } from "@/components/sound";
-import { chooseMove, DRAW_RULES, HOME, LEVELS, NEIGHBOURS, other, play, positionKey, resultAfter, startBoard, type Board, type Level, type Mark, type Move, type Result } from "@/components/tintanto/rules";
+import { chooseMove, DRAW_RULES, HOME, LEVELS, NEIGHBOURS, other, play, positionKey, resultAfter, startBoard, type Board, type Level, type Mark, type Move, type Result } from "@salone/games/tintanto/rules";
 
 type Mode = "cpu" | "friend";
 // Against the computer you are X (blue, bottom row) and the computer is O (orange, top row). Who moves first

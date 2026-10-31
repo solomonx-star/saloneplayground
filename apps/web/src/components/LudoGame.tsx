@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { MUTED_KEY, readFlag, writeFlag } from "@/components/preferences";
 import { gameSound as sound } from "@/components/sound";
-import { ARROWS, cellOf, COLOUR_HEX, COLUMN_CELLS, HOME_CELL, SIZE, TRACK_CELLS, YARD, type Cell } from "@/components/ludo/board";
-import { ARROW_TIPS, chooseMove, COLOURS, COLUMN, current, LEVELS, NO_RULES, newGame, pathOf, play as makeMove, plays, rolled, RULES, skip, START, taxiOf, TURN_SECONDS, type Colour, type Game, type Level, type Play, type Rule, type Rules } from "@/components/ludo/rules";
+import { ARROWS, cellOf, COLOUR_HEX, COLUMN_CELLS, HOME_CELL, SIZE, TRACK_CELLS, YARD, type Cell } from "@salone/games/ludo/board";
+import { ARROW_TIPS, chooseMove, COLOURS, COLUMN, current, LEVELS, NO_RULES, newGame, pathOf, play as makeMove, plays, rolled, RULES, skip, START, taxiOf, TURN_SECONDS, type Colour, type Game, type Level, type Play, type Rule, type Rules } from "@salone/games/ludo/rules";
 
 type Opponents = "cpu" | "friends";
 // A token sliding square by square: the move being made, the cells it passes through, and how far along it is.
