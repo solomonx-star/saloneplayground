@@ -1,0 +1,23 @@
+{
+  "name": "@salone/server",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Game server for party and online play: rooms, guests and matches over Socket.IO, stored in MongoDB.",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.2.8",
+    "@nestjs/core": "^11.2.8",
+    "@nestjs/platform-express": "^11.2.8",
+    "@nestjs/platform-socket.io": "^11.2.8",
+    "@nestjs/websockets": "^11.2.8",
+    "@salone/games": "*",
+    "mongoose": "^8.24.7",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "socket.io": "^4.8.4",
+    "tsx": "^4.23.15"
+  }
+}

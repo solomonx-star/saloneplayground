@@ -7,19 +7,24 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev -w @salone/web",
+    "dev": "concurrently --names web,server --prefix-colors cyan,magenta \"npm run dev -w @salone/web\" \"npm run dev -w @salone/server\"",
+    "dev:web": "npm run dev -w @salone/web",
+    "dev:server": "npm run dev -w @salone/server",
     "build": "npm run build -w @salone/web",
     "start": "npm run start -w @salone/web",
     "lint": "eslint",
-    "typecheck": "npm run typegen -w @salone/web && tsc -p apps/web --noEmit && tsc -p packages/games --noEmit",
+    "typecheck": "npm run typegen -w @salone/web && tsc -p apps/web --noEmit && tsc -p apps/server --noEmit && tsc -p packages/games --noEmit",
     "test": "vitest run"
   },
   "devDependencies": {
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^9.2.5",
     "eslint": "^9",
     "eslint-config-next": "16.4.2",
+    "mongodb-memory-server": "^10.4.3",
+    "socket.io-client": "^4.8.4",
     "typescript": "^5",
     "vitest": "^3.2.4"
   }

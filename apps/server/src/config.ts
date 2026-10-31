@@ -1,0 +1,27 @@
+// Settings for the game server, from environment variables. At start-up apps/server/.env is read when it exists
+// (it holds MONGODB_URI and is never committed); see .env.example.
+
+export type Config = {
+  port: number;
+  mongoUri: string;
+  // The database inside the MongoDB cluster: keep development and live games apart.
+  dbName: string;
+  // How long a room is kept after its last change before MongoDB deletes it.
+  roomHours: number;
+  // How long a computer player waits before moving, so people can follow the game.
+  cpuDelayMs: number;
+};
+
+export const CONFIG = Symbol("config");
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  const mongoUri = env.MONGODB_URI?.trim();
+  if (!mongoUri) throw new Error("MONGODB_URI is not set. Put it in apps/server/.env (see apps/server/.env.example).");
+  return {
+    port: Number(env.PORT ?? 4000),
+    mongoUri,
+    dbName: env.MONGODB_DB?.trim() || "salone_dev",
+    roomHours: Number(env.ROOM_HOURS ?? 12),
+    cpuDelayMs: Number(env.CPU_DELAY_MS ?? 700),
+  };
+}

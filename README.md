@@ -9,7 +9,16 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. From the project root, `npm test` runs every test, `npm run lint` lints everything, `npm run typecheck` type-checks both workspaces, and `npm run build` builds the web app.
+`npm run dev` starts the web app and the game server together. Open `http://localhost:3000`. From the project root, `npm test` runs every test, `npm run lint` lints everything, `npm run typecheck` type-checks every workspace, and `npm run build` builds the web app.
+
+The game server (for online play) needs a MongoDB database. Copy `apps/server/.env.example` to `apps/server/.env` and set `MONGODB_URI` to your connection string (for example a MongoDB Atlas cluster, or `mongodb://127.0.0.1:27017` for MongoDB Community on this computer). That file is ignored by Git; never commit a real connection string. The tests never use it: they start a throwaway MongoDB of their own.
+
+## Online play (version 2)
+
+- Tin Tan To can be played online: choose **Online** in its PLAY menu. Enter a name (no sign-up), then create a room and share its four-letter code, or join a friend's room with theirs. The host can give empty seats to computer players and starts the game. Each player sees the board from their own side.
+- The game server checks every move with the same rules as the one-device game, saves each room to MongoDB after every change (so a restart carries on where it was) and records every finished round. A player whose connection drops keeps their seat and is shown as away; reloading the page rejoins the room. Leaving a game hands your seat to a computer player. Rooms are deleted 12 hours after their last change.
+- Phones on the same Wi-Fi can play too: open the web app at this computer's network address (for example `http://192.168.1.20:3000`); the page finds the game server on port 4000 of the same address. Set `NEXT_PUBLIC_GAME_SERVER_URL` to use a server elsewhere.
+- Coming next: Ludo and Draft online, and party play (one shared screen showing the board, phones as controllers).
 
 ## Project layout
 
@@ -18,7 +27,8 @@ The repository is an npm workspace, ready for the version 2 game server:
 | Folder | What it holds |
 | --- | --- |
 | `apps/web` | The Next.js app: the games shelf and every game screen. Paths below starting `src/` are inside it. |
-| `packages/games` (`@salone/games`) | Rules and computer players for the turn-based games (Draft, Ludo, Tin Tan To). Plain TypeScript with no React or Phaser, so the web app and the game server can share them. |
+| `apps/server` | The game server for online and party play: NestJS with Socket.IO, storing guests, rooms and finished rounds in MongoDB (`players`, `rooms`, `matches`). |
+| `packages/games` (`@salone/games`) | Rules and computer players for the turn-based games (Draft, Ludo, Tin Tan To), plus the online protocol (`online/protocol.ts`) and the description of each game the server runs (`online/games.ts`). Plain TypeScript with no React or Phaser, so the web app and the game server can share them. |
 
 ## Balance Ball
 
