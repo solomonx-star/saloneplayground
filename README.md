@@ -1,6 +1,6 @@
 # Salone Playground
 
-A browser game prototype for Sierra Leonean childhood games, built with Next.js, TypeScript, and Phaser. Balance Ball, Touch, Hide and Seek, Draft, Marbles, and Tic Tac To are playable.
+A browser game prototype for Sierra Leonean childhood games, built with Next.js, TypeScript, and Phaser. Balance Ball, Touch, Hide and Seek, Draft, Marbles, Tin Tan To, and Ludo are playable.
 
 ## Run locally
 
@@ -53,13 +53,33 @@ Open `http://localhost:3000`.
 - The ground is rough on purpose: a full-power shot rolls about two-thirds of the way across, so marbles are chipped out rather than blasted. In self-play the computer clears about 1, 2 and 3 marbles a turn on Easy, Normal and Hard.
 - Code: tuning in `src/components/marbles/settings.ts`, physics in `marbles/physics.ts`, rules in `marbles/rules.ts`, the computer player (which tries shots out in the physics before taking one) in `marbles/ai.ts`, tests in `marbles/marbles.test.ts`, scene in `marbles/scene.ts`, screen in `MarblesGame.tsx`.
 
-## Tic Tac To
+## Tin Tan To
 
-- Classic 3×3: take turns marking squares and get three in a row. Chalk marks are drawn on a slate board and the winning line is chalked through.
-- Play against the computer or two players on one device. The score is kept across rounds (wins and draws), and who goes first swaps every round.
-- Levels: Easy sometimes misses wins and blocks; Normal always takes a win or blocks but still makes mistakes; Hard plays perfectly (full minimax) and can only be held to a draw.
-- Tap or click a square, or use the number keys 1–9 (laid out like a phone keypad, 1 is top left).
-- Code: rules and computer player in `src/components/tictacto/rules.ts`, tests in `tictacto/tictacto.test.ts`, screen in `TicTacToGame.tsx`.
+- The local three-in-a-row game, played on a board drawn on paper: nine points joined by the outer rectangle, the middle row and column, and the two long diagonals through the centre.
+- Each side has three pieces, starting on its own home row (yours at the bottom, the other side's at the top). Take turns sliding one piece along a line to the next empty point; there is no jumping or capturing.
+- Three in a row along any line wins, except along your own home row. The other side's home row does count.
+- A round is a draw if the same position comes round three times, or after 60 moves with no winner. (A side can never be left with no move unless the other side already has a line.)
+- Play against the computer or two players on one device. The score is kept across rounds, and who moves first swaps every round.
+- Levels: Easy sometimes misses a win and can walk into a loss; Normal always takes a win and never hands one over with a careless move, but still makes mistakes; Hard plays the solved game (every position is worked out in advance) and can only be held to a draw. With best play the game is a draw; opening by moving a corner piece into the centre loses.
+- Tap a piece to pick it up, then tap a lit point to slide it there. Number keys 1–9 tap the points (laid out like a phone keypad, 1 is top left); Escape puts a piece down.
+- Code: rules, solver and computer player in `src/components/tintanto/rules.ts`, tests in `tintanto/tintanto.test.ts`, screen in `TinTanToGame.tsx`.
+
+## Ludo
+
+- A 15×15 board drawn like a printed one: Player 1 red (top left), Player 2 green (top right), Player 3 blue (bottom right) and Player 4 yellow (bottom left), with black grid lines, a pale centre and black arrows (into each home column, along each start lane and round each inner corner). A shared track of 52 squares, a home column for each colour and the centre. Play goes clockwise, Player 1 to 4. Four tokens each; the first to get all four home wins.
+- Played with two dice, which tumble in the middle of the board. Each die is played separately: both on one token, or one on each. A 6 on either die brings a token out onto its start square (using that 6). Tokens go round the board, up their home column and must land home exactly. A die that cannot be used is lost.
+- Landing on another colour's token sends it back to its yard. The four start squares (drawn in their colour) are safe. A double 6, a capture or getting a token home earns another roll.
+- House rules, switched on and off below the board (any mix; changing them starts a new game):
+  1. **Double Number Repeat**: any double earns another roll, not only a double 6.
+  2. **Poison Arrow**: landing on a track square an arrow points to (the eight squares at the tips of the start-lane and corner arrows, tinted red while the rule is on) sends any token back to its yard.
+  3. **Back & Front**: a token may move backward by a die, but only when that lands on another colour's token and captures it. It may go back past its own start square, but then has the whole lap to run again. Tokens on the coloured start squares are safe from backward captures too. A token that can capture backward (with either die) gets a red ring; tapping it does not move it but shows its lines of play: a red line to each backward capture and a green line for each forward move, each ending in a marker with its die. Tap the end of the line you want (tap the token again to put it down).
+  4. **Hanged Rule**: step 55 (55 squares on from the start square: the last square before home, marked 55) hangs a token that lands on it, sending it back to its yard. Passing over it to land home exactly is fine.
+  5. **Turn Timer**: 30 seconds for each roll or move; when it runs out the game plays it for you (at Normal level).
+  6. **Taxi**: a captured token does not go home; it becomes a taxi carrying the token that caught it (its master), drawn riding on top. Every die the taxi's owner rolls must move the taxi until the master reaches the entrance of its own home column; there the master gets off and the taxi goes back to its yard. Tokens in a taxi cannot be captured.
+- 2, 3 or 4 players (two players sit opposite each other: Players 1 and 3). Play against the computer (you are red) or pass and play on one device.
+- Levels: the computer scores each move (captures, getting home, getting out, staying out of reach, avoiding poison arrows and the hanging square) and looks one move ahead to play its two dice in the best order; Easy and Normal add randomness to those scores. It is still a dice game, so no level wins every time.
+- Tap the dice in the middle of the board or ROLL DICE (or press Space) to roll. Tokens glow for the die in use; when the two dice can move different tokens, tap a die to switch (or press D), then tap a glowing token (or press 1–4). With only one possible move it is made for you; with none, the roll ends.
+- Code: rules, house rules and computer player in `src/components/ludo/rules.ts`, board layout in `ludo/board.ts`, tests in `ludo/ludo.test.ts`, screen in `LudoGame.tsx`.
 
 ## Draft
 
