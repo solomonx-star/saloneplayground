@@ -5,6 +5,8 @@ import { canRoll, makePlay, newLudoMatch, rematch, rollDice, standIn, type LudoM
 import { chooseMove as chooseLudoMove, LEVELS as LUDO_LEVELS, NO_RULES, RULES, TURN_SECONDS, type Level as LudoLevel, type Play, type Rule, type Rules } from "../ludo/rules";
 import { applyMove, canMove, newMatch, nextRound, type Match } from "../tintanto/match";
 import { chooseMove, LEVELS as TIN_TAN_TO_LEVELS, type Level, type Move } from "../tintanto/rules";
+import { newSummary, readOptions, seatsFor, type TouchAction, type TouchOptions, type TouchSummary } from "../touch/online";
+import { LEVELS as TOUCH_LEVELS } from "../touch/settings";
 import type { GameId } from "./protocol";
 
 // What the game server needs to know to run a game it otherwise knows nothing about. Everything here is pure: the
@@ -32,6 +34,10 @@ export type OnlineGame<M, A, O> = {
   standIn(match: M, reason: StandInReason, random?: () => number): M;
   // Whether the current round or game has finished, so its result can be recorded.
   roundOver(match: M): boolean;
+  // A real-time game runs on the server's clock instead of in turns (Touch: see touch.live.ts in the server). The
+  // match here is only a summary saved between runs, actions go to the live match, and the computer plays any seat
+  // nobody has taken, so the game can start with seats free.
+  realtime?: boolean;
 };
 
 // ---- Tin Tan To ----
@@ -147,5 +153,25 @@ export const draft: OnlineGame<DraftMatch, DraftAction, Record<string, never>> =
   roundOver: (match) => !!match.result,
 };
 
-export const ONLINE_GAMES: Record<GameId, OnlineGame<unknown, unknown, unknown>> = { tintanto: tinTanTo, ludo, draft };
+// ---- Touch ----
+
+// Seats alternate between the teams (even seats Blue, odd seats Orange); see touch/online.ts.
+export const touch: OnlineGame<TouchSummary, TouchAction, TouchOptions> = {
+  label: "Touch",
+  levels: TOUCH_LEVELS,
+  defaultOptions: { count: 4, level: "normal" },
+  options: readOptions,
+  seats: (options) => seatsFor(options.count),
+  start: newSummary,
+  turn: () => null,
+  act: () => "Touch is played live on the game server.",
+  cpuAction: () => null,
+  timeLimit: () => null,
+  playsForAway: false,
+  standIn: (match) => match,
+  roundOver: (match) => match.over,
+  realtime: true,
+};
+
+export const ONLINE_GAMES: Record<GameId, OnlineGame<unknown, unknown, unknown>> = { tintanto: tinTanTo, ludo, draft, touch };
 export const isGameId = (value: unknown): value is GameId => typeof value === "string" && value in ONLINE_GAMES;

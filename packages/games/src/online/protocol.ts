@@ -1,7 +1,7 @@
 // The messages between the game screens and the game server, for party and online play. The server sends each
 // room's state as a RoomView after every change; screens send requests and get a Reply back.
 
-export type GameId = "tintanto" | "ludo" | "draft";
+export type GameId = "tintanto" | "ludo" | "draft" | "touch";
 // A closed room has ended for good (its party screen left); screens drop it when they see that.
 export type RoomStatus = "lobby" | "playing" | "closed";
 
@@ -40,9 +40,13 @@ export const EVENTS = {
   options: "room:options",
   addCpu: "room:add-cpu",
   removeCpu: "room:remove-cpu",
+  seat: "room:seat",
   start: "room:start",
   act: "game:act",
   update: "room:update",
+  // Real-time games (Touch): a person's stick and buttons, and the frames the server sends while the match runs.
+  input: "game:input",
+  frame: "game:frame",
 } as const;
 
 // Room codes are four capital letters, leaving out I and O so they cannot be mistaken for 1 and 0.

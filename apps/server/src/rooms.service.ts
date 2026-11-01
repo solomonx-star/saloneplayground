@@ -2,8 +2,10 @@ import { randomInt } from "node:crypto";
 import { Inject, Injectable, type OnApplicationShutdown } from "@nestjs/common";
 import { isGameId, ONLINE_GAMES } from "@salone/games/online/games";
 import { CODE_LETTERS, ROOM_CODE, type RoomView } from "@salone/games/online/protocol";
+import type { TouchAction, TouchFrame, TouchOptions, TouchSummary } from "@salone/games/touch/online";
 import { CONFIG, type Config } from "./config";
 import { MODELS, type Models, type RoomDoc, type SeatDoc } from "./database";
+import { TouchLive } from "./touch.live";
 
 // A request the server refuses, with a message the player can read.
 export class RoomError extends Error {}
@@ -32,12 +34,26 @@ export class RoomsService implements OnApplicationShutdown {
   private readonly live = new Map<string, LiveRoom>();
   private readonly loading = new Map<string, Promise<LiveRoom>>();
   private readonly listeners: ((view: RoomView) => void)[] = [];
+  private readonly frameListeners: ((code: string, frame: TouchFrame) => void)[] = [];
+  // Live matches of the real-time game (Touch). They tick by themselves and save here when a run ends.
+  private readonly touch = new TouchLive({
+    frame: (code, frame) => { for (const listener of this.frameListeners) listener(code, frame); },
+    runEnded: (code) => {
+      void this.run(code, async (room) => {
+        const summary = this.touch.summary(code);
+        if (room.status === "playing" && summary) await this.update(room, summary);
+      }).catch((error) => console.error(`Saving Touch room ${code} failed:`, error));
+    },
+  }, random);
 
   // Explicit @Inject because the server runs with tsx, which does not emit the type metadata Nest would otherwise use.
   constructor(@Inject(MODELS) private readonly models: Models, @Inject(CONFIG) private readonly config: Config) {}
 
   // Called with the room's new state after every change.
   onChange(listener: (view: RoomView) => void) { this.listeners.push(listener); }
+
+  // Called with every frame of a real-time match, many times a second while a run is on.
+  onFrame(listener: (code: string, frame: TouchFrame) => void) { this.frameListeners.push(listener); }
 
   view(room: LiveRoom): RoomView {
     const deadline = room.deadline;
@@ -81,18 +97,21 @@ export class RoomsService implements OnApplicationShutdown {
       if (room.party && room.hostId === guest.guestId) {
         room.connections.set(guest.guestId, (room.connections.get(guest.guestId) ?? new Set()).add(connection));
         this.scheduleTurn(room);
+        this.syncPeople(room);
         this.emit(room);
         return this.view(room);
       }
       let seat = room.seats.findIndex((s) => s.guestId === guest.guestId);
       if (seat < 0) {
-        if (room.status !== "lobby") throw new RoomError("That game has already started.");
+        // A real-time game can take a new player in a free seat while it runs.
+        if (room.status !== "lobby" && !ONLINE_GAMES[room.game].realtime) throw new RoomError("That game has already started.");
         seat = room.seats.findIndex((s) => !s.guestId && !s.cpu);
         if (seat < 0) throw new RoomError("That room is full.");
       }
       room.seats[seat] = { ...room.seats[seat], guestId: guest.guestId, name: guest.name };
       room.connections.set(guest.guestId, (room.connections.get(guest.guestId) ?? new Set()).add(connection));
       this.scheduleTurn(room);
+      this.syncPeople(room);
       await this.save(room);
       return this.view(room);
     });
@@ -107,12 +126,15 @@ export class RoomsService implements OnApplicationShutdown {
       const seat = room.seats.findIndex((s) => s.guestId === guest.guestId);
       room.connections.delete(guest.guestId);
       if (seat >= 0) {
-        room.seats[seat] = room.status === "lobby" ? emptySeat() : { guestId: null, name: `${room.seats[seat].name} (CPU)`, cpu: true, level: "normal" };
+        // In a real-time game the computer plays every free seat anyway, so the seat stays open for someone new.
+        const freed = room.status === "lobby" || ONLINE_GAMES[room.game].realtime;
+        room.seats[seat] = freed ? emptySeat() : { guestId: null, name: `${room.seats[seat].name} (CPU)`, cpu: true, level: "normal" };
       }
       const humans = room.seats.filter((s) => s.guestId);
       if (!humans.length && !room.party) { await this.close(room); return; }
       if (room.hostId === guest.guestId) room.hostId = humans[0].guestId!;
       this.scheduleTurn(room);
+      this.syncPeople(room);
       await this.save(room);
     });
   }
@@ -125,6 +147,7 @@ export class RoomsService implements OnApplicationShutdown {
       open?.delete(connection);
       if (!open?.size) room.connections.delete(guestId);
       this.scheduleTurn(room);
+      this.syncPeople(room);
       this.emit(room);
     }).catch(() => undefined);
   }
@@ -173,9 +196,14 @@ export class RoomsService implements OnApplicationShutdown {
   start(guest: GuestRef, code: unknown): Promise<RoomView> {
     return this.run(code, async (room) => {
       this.hostInLobby(room, guest);
-      if (room.seats.some((s) => !s.guestId && !s.cpu)) throw new RoomError("Fill every seat (with a friend or a computer player) before starting.");
+      const game = ONLINE_GAMES[room.game];
+      if (game.realtime) {
+        if (!room.seats.some((s) => s.guestId)) throw new RoomError("At least one player needs a seat before starting.");
+      } else if (room.seats.some((s) => !s.guestId && !s.cpu)) throw new RoomError("Fill every seat (with a friend or a computer player) before starting.");
       room.status = "playing";
-      room.match = ONLINE_GAMES[room.game].start(room.options);
+      room.match = game.start(room.options);
+      if (game.realtime) this.touch.open(room._id, room.options as TouchOptions, null);
+      this.syncPeople(room);
       this.scheduleTurn(room);
       await this.save(room);
       return this.view(room);
@@ -190,6 +218,12 @@ export class RoomsService implements OnApplicationShutdown {
       const seat = room.seats.findIndex((s) => s.guestId === guest.guestId);
       const partyHost = room.party && room.hostId === guest.guestId;
       if (seat < 0 && !partyHost) throw new RoomError("You do not have a seat in this game.");
+      if (ONLINE_GAMES[room.game].realtime) {
+        const result = this.touch.act(room._id, seat < 0 ? null : guest.guestId, action as TouchAction);
+        if (typeof result === "string") throw new RoomError(result);
+        if (result.changed) await this.update(room, this.touch.summary(room._id));
+        return this.view(room);
+      }
       const next = ONLINE_GAMES[room.game].act(room.match, seat, action, random);
       if (typeof next === "string") throw new RoomError(next);
       await this.update(room, next);
@@ -197,13 +231,48 @@ export class RoomsService implements OnApplicationShutdown {
     });
   }
 
+  // The live match's latest frame in a real-time room, for a screen that has just joined.
+  frame(code: string) { return this.touch.frame(code); }
+
+  // A guest picks a free seat in the lobby (in Touch, which team they play for).
+  takeSeat(guest: GuestRef, code: unknown, seat: unknown): Promise<RoomView> {
+    return this.run(code, async (room) => {
+      if (room.status !== "lobby") throw new RoomError("The game has already started.");
+      const from = room.seats.findIndex((s) => s.guestId === guest.guestId);
+      if (from < 0) throw new RoomError("You do not have a seat in this room.");
+      const to = this.seatIndex(room, seat);
+      if (to === from) return this.view(room);
+      if (room.seats[to].guestId || room.seats[to].cpu) throw new RoomError("That seat is taken.");
+      room.seats[to] = room.seats[from];
+      room.seats[from] = emptySeat();
+      await this.save(room);
+      return this.view(room);
+    });
+  }
+
+  // A person's stick and buttons in a real-time game. Many arrive each second, so they skip the room's queue and
+  // are not saved; a guest without a seat, or a room not in use, is ignored.
+  input(guestId: string, code: string | undefined, input: unknown) {
+    const room = code ? this.live.get(code) : undefined;
+    if (!room || room.status !== "playing" || !ONLINE_GAMES[room.game].realtime) return;
+    if (room.seats.some((s) => s.guestId === guestId)) this.touch.input(room._id, guestId, input);
+  }
+
   onApplicationShutdown() {
     for (const room of this.live.values()) clearTimeout(room.turnTimer);
+    this.touch.closeAll();
   }
 
   // ---- Inside ----
 
   private connected(room: LiveRoom, guestId: string | null) { return !!guestId && !!room.connections.get(guestId)?.size; }
+
+  // Tells a real-time match who is playing: guests in a seat with the room open. It sends everyone a fresh frame.
+  private syncPeople(room: LiveRoom) {
+    if (room.status !== "playing" || !ONLINE_GAMES[room.game].realtime) return;
+    const people = room.seats.flatMap((s, seat) => (s.guestId && this.connected(room, s.guestId) ? [{ guestId: s.guestId, seat }] : []));
+    this.touch.people(room._id, people);
+  }
 
   // Saves a new state of the match, records the round if it has just finished, and sets up what happens next.
   private async update(room: LiveRoom, next: unknown) {
@@ -290,6 +359,7 @@ export class RoomsService implements OnApplicationShutdown {
         if (!saved) throw new RoomError("There is no room with that code. Check it, or ask the host for a new one.");
         const room: LiveRoom = { ...saved, party: saved.party ?? false, options: saved.options ?? ONLINE_GAMES[saved.game].defaultOptions, connections: new Map(), queue: Promise.resolve() };
         this.live.set(key, room);
+        if (room.status === "playing" && ONLINE_GAMES[room.game].realtime) this.touch.open(key, room.options as TouchOptions, room.match as TouchSummary);
         this.scheduleTurn(room);
         return room;
       })().finally(() => this.loading.delete(key));
@@ -314,6 +384,7 @@ export class RoomsService implements OnApplicationShutdown {
   // Ends a room: everyone still in it is told it has closed, and it is deleted.
   private async close(room: LiveRoom) {
     clearTimeout(room.turnTimer);
+    this.touch.close(room._id);
     room.status = "closed";
     this.emit(room);
     this.live.delete(room._id);

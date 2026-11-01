@@ -12,6 +12,7 @@ import type { LudoOptions } from "@salone/games/online/games";
 import type { LudoMatch } from "@salone/games/ludo/match";
 import type { DraftMatch } from "@salone/games/draft/match";
 import { plays } from "@salone/games/ludo/rules";
+import type { TouchFrame, TouchSummary } from "@salone/games/touch/online";
 import { AppModule } from "./app.module";
 import { parseOrigins, type Config } from "./config";
 import { allowOrigins } from "./setup";
@@ -322,6 +323,127 @@ describe("Draft rooms", () => {
     await call(host.socket, EVENTS.act, { action: { type: "turn", steps: [{ from: { r: 6, c: 1 }, to: { r: 5, c: 0 } }] } });
     const replied = await until<RoomView<DraftMatch>>(host.updates, (v) => v.match?.side === "black" && v.match.turns === 2);
     expect(replied.match?.last?.side).toBe("white");
+  });
+});
+
+describe("Touch rooms", () => {
+  // Collects a screen's frames from the live match.
+  function frames(socket: Socket) {
+    const list: TouchFrame[] = [];
+    socket.on(EVENTS.frame, (frame: TouchFrame) => list.push(frame));
+    return {
+      list,
+      async until(test: (frame: TouchFrame) => boolean, ms = 5000) {
+        const deadline = Date.now() + ms;
+        while (Date.now() < deadline) {
+          const found = [...list].reverse().find(test);
+          if (found) return found;
+          await new Promise((r) => setTimeout(r, 20));
+        }
+        throw new Error("Timed out waiting for a frame");
+      },
+    };
+  }
+
+  it("seats players on alternating teams, lets them pick a team, and starts with the computer in the free seats", async () => {
+    const host = await connect("Musa");
+    const friend = await connect("Kadie");
+    const room = await call<RoomView<TouchSummary>>(host.socket, EVENTS.create, { game: "touch", options: { count: 3 } });
+    expect(room.seats).toHaveLength(6);
+    const joined = await call<RoomView<TouchSummary>>(friend.socket, EVENTS.join, { code: room.code });
+    expect(joined.seats[1].guestId).toBe(friend.guest.guestId);
+    // Kadie moves to Blue (even seats), then back to Orange.
+    const blue = await call<RoomView<TouchSummary>>(friend.socket, EVENTS.seat, { seat: 2 });
+    expect(blue.seats[2].guestId).toBe(friend.guest.guestId);
+    expect(await refused(friend.socket, EVENTS.seat, { seat: 0 })).toMatch(/taken/);
+    await call(friend.socket, EVENTS.seat, { seat: 1 });
+    // A team of six still has at most five people: one for each defender.
+    const big = await call<RoomView<TouchSummary>>(host.socket, EVENTS.options, { options: { count: 6, level: "hard" } });
+    expect(big.seats).toHaveLength(10);
+    expect(big.options).toEqual({ count: 6, level: "hard" });
+    const started = await call<RoomView<TouchSummary>>(host.socket, EVENTS.start);
+    expect(started.match).toMatchObject({ count: 6, level: "hard", score: [0, 0], turn: 1, attacking: 0, over: false });
+  });
+
+  it("runs the match live: each person controls one player, moves it with their stick, and defenders can switch", async () => {
+    const host = await connect("Musa");
+    const friend = await connect("Kadie");
+    const hostFrames = frames(host.socket);
+    const friendFrames = frames(friend.socket);
+    const room = await call<RoomView<TouchSummary>>(host.socket, EVENTS.create, { game: "touch", options: { count: 3 } });
+    await call(friend.socket, EVENTS.join, { code: room.code });
+    await call(host.socket, EVENTS.start);
+    const ready = await hostFrames.until((f) => !!f.people[friend.guest.guestId]);
+    expect(ready.phase).toBe("ready");
+    expect(ready.people[host.guest.guestId]).toMatchObject({ player: "attacker1", team: 0 });
+    expect(ready.people[friend.guest.guestId]).toMatchObject({ player: "main", team: 1 });
+    expect(ready.attackers).toHaveLength(3);
+    expect(ready.defenders).toHaveLength(5);
+
+    expect(await refused(friend.socket, EVENTS.act, { action: { type: "switch" } })).toMatch(/Wait/);
+    await call(host.socket, EVENTS.act, { action: { type: "begin" } });
+    const startY = ready.attackers[0][1];
+    host.socket.emit(EVENTS.input, { input: { x: 0, y: -1, sprint: false } });
+    const moved = await hostFrames.until((f) => f.phase !== "playing" || f.attackers[0][1] < startY - 40);
+    if (moved.phase === "playing") expect(moved.attackers[0][0]).toBeCloseTo(ready.attackers[0][0], 0);
+
+    // The defender switches to the next free defender (if the run is still on), and every screen sees it.
+    const switched = await call(friend.socket, EVENTS.act, { action: { type: "switch" } }).then(() => true, () => false);
+    if (switched) await friendFrames.until((f) => f.people[friend.guest.guestId]?.player === "line1");
+    // An attacker cannot take a defender.
+    expect(await refused(host.socket, EVENTS.act, { action: { type: "switch", to: "main" } })).toBeTruthy();
+
+    // The run ends (a touch, or home) and the room saves the score and turn.
+    const ended = await until<RoomView<TouchSummary>>(host.updates, (v) => v.match !== null && (v.match.turn > 1 || v.match.score[0] > 0), 20_000);
+    expect(ended.status).toBe("playing");
+  }, 30_000);
+
+  it("gives a player who leaves back to the computer, and lets someone new take the free seat mid-match", async () => {
+    const host = await connect("Musa");
+    const friend = await connect("Kadie");
+    const late = await connect("Sorie");
+    const hostFrames = frames(host.socket);
+    const room = await call<RoomView<TouchSummary>>(host.socket, EVENTS.create, { game: "touch", options: { count: 4 } });
+    await call(friend.socket, EVENTS.join, { code: room.code });
+    await call(host.socket, EVENTS.start);
+    await call(host.socket, EVENTS.act, { action: { type: "begin" } });
+    await call(friend.socket, EVENTS.leave);
+    await hostFrames.until((f) => !!f.people[host.guest.guestId] && !f.people[friend.guest.guestId]);
+    const view = await call<RoomView<TouchSummary>>(late.socket, EVENTS.join, { code: room.code });
+    expect(view.seats[1].guestId).toBe(late.guest.guestId);
+    const frame = await hostFrames.until((f) => !!f.people[late.guest.guestId]);
+    // Joining while the run is on: Sorie takes a free defender straight away.
+    expect(frame.people[late.guest.guestId].player).not.toBeNull();
+  });
+
+  it("lets a party screen run a Touch match for the phones", async () => {
+    const table = await connect("Table");
+    const phone = await connect("Fatmata");
+    const tableFrames = frames(table.socket);
+    const room = await call<RoomView<TouchSummary>>(table.socket, EVENTS.create, { game: "touch", party: true });
+    await call(phone.socket, EVENTS.join, { code: room.code });
+    await call(table.socket, EVENTS.start);
+    await call(table.socket, EVENTS.act, { action: { type: "begin" } });
+    const frame = await tableFrames.until((f) => f.phase === "playing");
+    expect(frame.people[phone.guest.guestId]).toMatchObject({ player: "attacker1", team: 0 });
+    expect(frame.people[table.guest.guestId]).toBeUndefined();
+    expect(await refused(table.socket, EVENTS.act, { action: { type: "switch" } })).toMatch(/not playing/);
+  });
+
+  it("carries a match on from its line-up after the server restarts", async () => {
+    const host = await connect("Musa");
+    const room = await call<RoomView<TouchSummary>>(host.socket, EVENTS.create, { game: "touch", options: { count: 3 } });
+    await call(host.socket, EVENTS.start);
+    await app.close();
+    await startServer();
+    const back = await connect("Musa", host.guest);
+    const backFrames = frames(back.socket);
+    const view = await call<RoomView<TouchSummary>>(back.socket, EVENTS.join, { code: room.code });
+    expect(view.match).toMatchObject({ turn: 1, attacking: 0 });
+    const frame = await backFrames.until((f) => !!f.people[back.guest.guestId]);
+    expect(frame.phase).toBe("ready");
+    await call(back.socket, EVENTS.act, { action: { type: "begin" } });
+    await backFrames.until((f) => f.phase === "playing");
   });
 });
 

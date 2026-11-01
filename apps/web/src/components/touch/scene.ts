@@ -222,7 +222,7 @@ export function createTouchScene(Phaser: typeof PhaserNamespace, input: { curren
           const result = you > them ? "You win" : you < them ? "The CPU wins" : "It's a draw";
           this.end(`Full time! ${result}, ${you}–${them}.`, you > them ? "success" : "danger");
         } else {
-          this.end(`${event.attacker.name} was touched. ${this.humanAttacks ? "Your team attacks next." : "Your team defends next."}`, "danger");
+          this.end(`${event.attacker?.name ?? "The runner"} was touched. ${this.humanAttacks ? "Your team attacks next." : "Your team defends next."}`, "danger");
         }
       } else {
         const trapLine = nextTrapLine(this.match.world(), event.attacker);

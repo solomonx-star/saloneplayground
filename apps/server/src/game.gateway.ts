@@ -32,6 +32,8 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
 
   afterInit() {
     this.rooms.onChange((view) => this.server.to(view.code).emit(EVENTS.update, view));
+    // Frames are sent many times a second: a screen that falls behind skips to the next rather than queueing them.
+    this.rooms.onFrame((code, frame) => this.server.to(code).volatile.emit(EVENTS.frame, frame));
   }
 
   @SubscribeMessage(EVENTS.hello)
@@ -62,6 +64,9 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
       if (this.data(socket).code !== code) await this.leaveRoom(socket);
       const view = await this.rooms.join(guest, code, socket.id);
       await this.enter(socket, view.code);
+      // A real-time match only sends frames while it moves, so a screen joining between runs needs the current one.
+      const frame = this.rooms.frame(view.code);
+      if (frame) socket.emit(EVENTS.frame, frame);
       return view;
     });
   }
@@ -92,6 +97,11 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
     return reply(() => this.rooms.removeCpu(this.guest(socket), this.data(socket).code, body?.seat));
   }
 
+  @SubscribeMessage(EVENTS.seat)
+  seat(@ConnectedSocket() socket: Socket, @MessageBody() body: Body) {
+    return reply(() => this.rooms.takeSeat(this.guest(socket), this.data(socket).code, body?.seat));
+  }
+
   @SubscribeMessage(EVENTS.start)
   start(@ConnectedSocket() socket: Socket) {
     return reply(() => this.rooms.start(this.guest(socket), this.data(socket).code));
@@ -100,6 +110,13 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
   @SubscribeMessage(EVENTS.act)
   act(@ConnectedSocket() socket: Socket, @MessageBody() body: Body) {
     return reply(() => this.rooms.act(this.guest(socket), this.data(socket).code, body?.action));
+  }
+
+  // A stick or button change in a real-time game. No reply: the next frame shows the result.
+  @SubscribeMessage(EVENTS.input)
+  input(@ConnectedSocket() socket: Socket, @MessageBody() body: Body) {
+    const { guest, code } = this.data(socket);
+    if (guest) this.rooms.input(guest.guestId, code, body?.input);
   }
 
   async handleDisconnect(socket: Socket) {

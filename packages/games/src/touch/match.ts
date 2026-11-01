@@ -18,7 +18,8 @@ export type TouchEvent =
   | { type: "line"; team: Team; x: number; y: number }
   | { type: "home"; team: Team; attacker: Player }
   | { type: "touch"; attacker: Player; defender: Player }
-  | { type: "turnOver"; attacker: Player; defender: Player; over: boolean }
+  // The sides change (or the match ends) after a touch, or when the run's time is up.
+  | { type: "turnOver"; reason: "touch" | "time"; attacker: Player | null; defender: Player | null; over: boolean }
   | { type: "mark"; attacker: Player };
 
 // One player on the field, with the scratch data the computer players keep on it.
@@ -39,6 +40,8 @@ export type MatchOptions = {
   // How each team's computer players play.
   tuning: [SideTuning, SideTuning];
   random?: () => number;
+  // A time limit on each run, after which the sides change as if the runner were touched. None on one device.
+  runSeconds?: number | null;
 };
 
 const ATTACKER_KEYS = ["goal", "mode", "think", "targetX", "holdTime", "courage", "crossLine"];
@@ -53,6 +56,9 @@ export class TouchMatch {
   readonly totalTurns = TOUCH.turnsPerTeam * 2;
   count: number;
   tuning: [SideTuning, SideTuning];
+  readonly runSeconds: number | null;
+  // When the current run's time is up, on the match clock, if runs have a time limit.
+  runEndsAt: number | null = null;
   attacking: Team = 0;
   score: [number, number] = [0, 0];
   turn = 1;
@@ -71,6 +77,7 @@ export class TouchMatch {
     this.count = options.count;
     this.tuning = options.tuning;
     this.random = options.random ?? Math.random;
+    this.runSeconds = options.runSeconds ?? null;
     this.defenders = LINES.map((lineY, i) => new Player(`line${i + 1}`, "line", `Line ${i + 1} defender`, i % 2 ? FIELD_W - 130 : 130, lineY).setData("lineY", lineY));
     this.mainDefender = new Player("main", "main", "Main Line defender", MID, 300).setData("main", true);
     this.defenders.push(this.mainDefender);
@@ -79,9 +86,15 @@ export class TouchMatch {
 
   get active() { return this.phase === "playing" || this.phase === "slowmo"; }
 
-  // Adds a person to a team. They take a player at the next reset.
+  // Adds a person to a team. They take the first free player on their side straight away (or none, when every
+  // player is taken; they get one at the next line-up if there is room).
   join(id: string, team: Team) {
-    this.controllers.set(id, { team, body: null, input: { x: 0, y: 0, sprint: false }, stamina: 1, sprinting: false });
+    if (this.controllers.get(id)?.team === team) return;
+    this.leave(id);
+    const controller: Controller = { team, body: null, input: { x: 0, y: 0, sprint: false }, stamina: 1, sprinting: false };
+    this.controllers.set(id, controller);
+    const free = this.side(team).find((player) => !this.controllerOf(player));
+    if (free) this.take(controller, free);
   }
 
   leave(id: string) {
@@ -96,8 +109,14 @@ export class TouchMatch {
   }
 
   newMatch() {
-    this.score = [0, 0]; this.turn = 1; this.attacking = 0;
+    this.restore({ score: [0, 0], turn: 1, attacking: 0, over: false });
+  }
+
+  // Carries on a saved match from the line-up of its current turn.
+  restore(saved: { score: [number, number]; turn: number; attacking: Team; over: boolean }) {
+    this.score = [...saved.score]; this.turn = saved.turn; this.attacking = saved.attacking;
     this.reset();
+    if (saved.over) this.phase = "over";
   }
 
   // Lines everyone up and starts the run. Returns false at full time.
@@ -105,6 +124,7 @@ export class TouchMatch {
     if (this.phase === "over") return false;
     this.reset();
     this.phase = "playing";
+    this.runEndsAt = this.runSeconds ? this.now + this.runSeconds * 1000 : null;
     return true;
   }
 
@@ -137,12 +157,16 @@ export class TouchMatch {
     const controller = this.controllers.get(id);
     if (!this.active || !controller || !body || body === controller.body) return false;
     if (!this.side(controller.team).includes(body) || this.controllerOf(body)) return false;
+    this.take(controller, body);
+    return true;
+  }
+
+  private take(controller: Controller, body: Player) {
     const attacking = controller.team === this.attacking;
     // The player let go picks a fresh plan; the one taken over drops its computer route.
     if (attacking) controller.body?.setData("mode", null);
     controller.body = body;
     if (attacking) body.setData("goal", null);
-    return true;
   }
 
   // The next free player on the person's side, in field order (Space or the SWITCH button).
@@ -165,8 +189,11 @@ export class TouchMatch {
     const slowMo = this.phase === "slowmo";
     if (slowMo) {
       dt *= TOUCH.slowMoScale;
-      if (this.now >= this.slowMoUntil) this.finishTurn(events);
-    }
+      if (this.now >= this.slowMoUntil) {
+        const { attacker, defender } = this.touched!;
+        this.finishTurn(events, "touch", attacker, defender);
+      }
+    } else if (this.phase === "playing" && this.runEndsAt !== null && this.now >= this.runEndsAt) this.finishTurn(events, "time", null, null);
     this.updateMarking(events);
     if (!this.active) return events;
     const humanSteps = new Map<Controller, number>();
@@ -193,6 +220,7 @@ export class TouchMatch {
   private reset() {
     this.phase = "ready";
     this.touched = null;
+    this.runEndsAt = null;
     this.aiTarget = null;
     this.announced = null;
     this.orderSignature = "";
@@ -280,16 +308,17 @@ export class TouchMatch {
         // Home safe: the same team attacks again.
         this.score[this.attacking] += TOUCH.homePoints;
         this.phase = "stopped";
+        this.runEndsAt = null;
         events.push({ type: "home", team: this.attacking, attacker });
         return;
       }
     }
   }
 
-  // After a touch's slow motion: the sides change, or the match ends after the last turn.
-  private finishTurn(events: TouchEvent[]) {
-    const { attacker, defender } = this.touched!;
+  // After a touch's slow motion, or when the run's time is up: the sides change, or the match ends after the last turn.
+  private finishTurn(events: TouchEvent[], reason: "touch" | "time", attacker: Player | null, defender: Player | null) {
     this.touched = null;
+    this.runEndsAt = null;
     const over = this.turn >= this.totalTurns;
     if (over) this.phase = "over";
     else {
@@ -297,7 +326,7 @@ export class TouchMatch {
       this.turn++;
       this.attacking = (1 - this.attacking) as Team;
     }
-    events.push({ type: "turnOver", attacker, defender, over });
+    events.push({ type: "turnOver", reason, attacker, defender, over });
   }
 
   private updateSprint(controller: Controller, dt: number, moving: boolean) {
