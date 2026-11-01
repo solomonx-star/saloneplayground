@@ -2,17 +2,22 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { io } from "socket.io-client";
 import type { DayStat, LiveView, StatsView } from "@salone/games/online/admin";
+import { EVENTS, type Reply } from "@salone/games/online/protocol";
 import { GAMES } from "@/components/games";
 import { serverUrl } from "@/online/useRoom";
 
-// The admin dashboard: who is online and what they are playing (refreshed every few seconds), and play statistics
-// over a chosen number of days. It reads the game server's /admin endpoints with the ADMIN_TOKEN secret, which is
-// kept for this browser tab only.
+// The admin dashboard: who is online and what they are playing, and play statistics over a chosen number of days.
+// It signs in to the game server with the ADMIN_TOKEN secret (kept for this browser tab only). The live view is
+// pushed over Socket.IO the moment anything changes; statistics are read over HTTP and read again as soon as the
+// server says a game session has ended.
 
 const TOKEN_KEY = "salone-admin-token";
-const LIVE_MS = 5000;
-const STATS_MS = 60000;
+// A slow safety refresh of the statistics (for example when a new day starts); pushes cover everything else.
+const STATS_MS = 5 * 60 * 1000;
+// Several sessions ending together cause one statistics read.
+const STATS_SETTLE_MS = 800;
 const RANGES = [{ days: 1, label: "Today" }, { days: 7, label: "7 days" }, { days: 30, label: "30 days" }, { days: 90, label: "90 days" }];
 
 const GAME_NAMES: Record<string, string> = Object.fromEntries(GAMES.map((g) => [g.slug, g.name.split(" · ")[0]]));
@@ -73,39 +78,65 @@ function SignIn({ error, onSignIn }: { error: string; onSignIn: (token: string) 
 function Dashboard({ token, onSignOut }: { token: string; onSignOut: (error?: string) => void }) {
   const [days, setDays] = useState(7);
   const [live, setLive] = useState<LiveView | null>(null);
+  // When the live view on show arrived (this device's clock), so its timers can count on between pushes.
+  const [liveAt, setLiveAt] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  const [connected, setConnected] = useState(false);
   const [stats, setStats] = useState<StatsView | null>(null);
+  // Goes up each time the server says a game session ended: the statistics are read again.
+  const [statsVersion, setStatsVersion] = useState(0);
   const [error, setError] = useState("");
 
-  const load = useCallback(async <T,>(path: string, set: (value: T) => void) => {
-    try { set(await getJson<T>(path, token)); setError(""); }
-    catch (e) { if (e instanceof AuthError) onSignOut(e.message); else setError(e instanceof Error && e.message !== "Failed to fetch" ? e.message : "Cannot reach the game server. Retrying…"); }
+  // The live view, pushed by the game server.
+  useEffect(() => {
+    const socket = io(serverUrl(), { transports: ["websocket"], reconnectionDelayMax: 5000 });
+    const show = (view: LiveView) => { setLive(view); setLiveAt(Date.now()); };
+    socket.on("connect", async () => {
+      const answer: Reply<LiveView> = await socket.emitWithAck(EVENTS.adminWatch, { token });
+      if (!answer.ok) { onSignOut(answer.error); return; }
+      setConnected(true); setError("");
+      show(answer.value);
+      // Sessions may have ended while the connection was down.
+      setStatsVersion((v) => v + 1);
+    });
+    socket.on(EVENTS.adminLive, show);
+    socket.on(EVENTS.adminSessions, () => setStatsVersion((v) => v + 1));
+    socket.on("disconnect", () => setConnected(false));
+    socket.on("connect_error", () => setConnected(false));
+    return () => { socket.disconnect(); };
   }, [token, onSignOut]);
 
+  // Timers on show count up every second.
   useEffect(() => {
-    const tick = () => void load<LiveView>("live", setLive);
-    tick();
-    const timer = window.setInterval(tick, LIVE_MS);
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [load]);
+  }, []);
 
+  // The statistics: on opening, on changing the range, shortly after a session ends, and every few minutes.
   useEffect(() => {
-    const tick = () => void load<StatsView>(`stats?days=${days}`, setStats);
-    tick();
-    const timer = window.setInterval(tick, STATS_MS);
-    return () => window.clearInterval(timer);
-  }, [load, days]);
+    let cancelled = false;
+    const read = async () => {
+      try { const value = await getJson<StatsView>(`stats?days=${days}`, token); if (!cancelled) { setStats(value); setError(""); } }
+      catch (e) { if (cancelled) return; if (e instanceof AuthError) onSignOut(e.message); else setError(e instanceof Error && e.message !== "Failed to fetch" ? e.message : "Cannot reach the game server. Retrying…"); }
+    };
+    const soon = window.setTimeout(read, statsVersion ? STATS_SETTLE_MS : 0);
+    const timer = window.setInterval(read, STATS_MS);
+    return () => { cancelled = true; window.clearTimeout(soon); window.clearInterval(timer); };
+  }, [token, onSignOut, days, statsVersion]);
 
+  const elapsed = liveAt ? Math.max(0, (now - liveAt) / 1000) : 0;
   return <main className="admin-screen">
     <header className="admin-header">
       <div><strong>SALONE PLAYGROUND</strong><small>ADMIN</small></div>
       <div className="admin-header-right">
-        {live && <span className="admin-muted admin-updated"><span className="admin-pulse" aria-hidden="true" />Live · updated {new Date(live.at).toLocaleTimeString()}</span>}
+        <span className={`admin-muted admin-updated ${connected ? "" : "offline"}`} role="status"><span className="admin-pulse" aria-hidden="true" />{connected ? "Live" : "Reconnecting…"}</span>
         <button className="admin-ghost" onClick={() => onSignOut()}>SIGN OUT</button>
       </div>
     </header>
     <div className="admin-content">
       {error && <p className="admin-error admin-banner" role="alert">{error}</p>}
-      <LiveSection live={live} />
+      {!connected && live && <p className="admin-error admin-banner" role="alert">Lost the live connection to the game server. Reconnecting… (the figures below may be out of date)</p>}
+      <LiveSection live={live} elapsed={elapsed} />
       <section className="admin-section" aria-labelledby="stats-title">
         <div className="admin-section-head">
           <h2 id="stats-title">Statistics</h2>
@@ -119,7 +150,8 @@ function Dashboard({ token, onSignOut }: { token: string; onSignOut: (error?: st
   </main>;
 }
 
-function LiveSection({ live }: { live: LiveView | null }) {
+// `elapsed`: seconds since this view arrived, added to its timers so they keep counting between pushes.
+function LiveSection({ live, elapsed }: { live: LiveView | null; elapsed: number }) {
   if (!live) return <section className="admin-section"><h2>Live now</h2><p className="admin-muted">Connecting to the game server…</p></section>;
   const byGame = new Map<string, number>();
   for (const p of live.people) if (p.playing && p.game) byGame.set(p.game, (byGame.get(p.game) ?? 0) + 1);
@@ -141,8 +173,8 @@ function LiveSection({ live }: { live: LiveView | null }) {
           <td>{who(p.name, p.visitorId)}{p.screens > 1 && <small className="admin-muted"> · {p.screens} screens</small>}</td>
           <td><span className={`admin-status ${p.playing ? "playing" : ""}`}>{p.playing ? "Playing" : p.game ? "Setting up" : "Browsing"}</span> {gameName(p.game)}</td>
           <td>{p.game ? modeName(p.mode) : "—"}</td>
-          <td className="num">{p.playing ? duration(p.playingSeconds) : "—"}</td>
-          <td className="num">{duration(p.onlineSeconds)}</td>
+          <td className="num">{p.playing ? duration(p.playingSeconds + elapsed) : "—"}</td>
+          <td className="num">{duration(p.onlineSeconds + elapsed)}</td>
         </tr>)}</tbody>
       </table></div>}
     </div>

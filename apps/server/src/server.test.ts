@@ -511,6 +511,34 @@ describe("admin dashboard", () => {
     expect(stats.totals.newPlayers).toBeGreaterThanOrEqual(1);
   });
 
+  it("pushes the live view to a signed-in dashboard as it changes, and says when a session ends", async () => {
+    const dashboard = io(url, { transports: ["websocket"], forceNew: true, reconnection: false });
+    sockets.push(dashboard);
+    await new Promise<void>((r) => dashboard.once("connect", () => r()));
+    expect(await refused(dashboard, EVENTS.adminWatch, { token: "wrong" })).toMatch(/not right/);
+
+    const pushes: LiveView[] = [];
+    let sessionsEnded = 0;
+    dashboard.on(EVENTS.adminLive, (view: LiveView) => pushes.push(view));
+    dashboard.on(EVENTS.adminSessions, () => { sessionsEnded += 1; });
+    const first = await call<LiveView>(dashboard, EVENTS.adminWatch, { token: "test-admin-secret" });
+    expect(first.people.some((p) => p.visitorId === "visitor-admin-test-3")).toBe(false);
+
+    const screen = io(url, { transports: ["websocket"], forceNew: true, reconnection: false });
+    sockets.push(screen);
+    await new Promise<void>((r) => screen.once("connect", () => r()));
+    screen.emit(EVENTS.presence, { visitorId: "visitor-admin-test-3", name: "Ibrahim", game: "marbles", mode: "friend", playing: true });
+    const deadline = Date.now() + 5000;
+    while (!pushes.some((v) => v.people.some((p) => p.visitorId === "visitor-admin-test-3" && p.playing)) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    expect(pushes.at(-1)?.people.find((p) => p.visitorId === "visitor-admin-test-3")).toMatchObject({ name: "Ibrahim", game: "marbles", playing: true });
+
+    await new Promise((r) => setTimeout(r, 100));
+    screen.disconnect();
+    while (sessionsEnded === 0 && Date.now() < deadline + 5000) await new Promise((r) => setTimeout(r, 20));
+    expect(sessionsEnded).toBe(1);
+    dashboard.disconnect();
+  });
+
   it("ignores reports that are not valid", async () => {
     const screen = io(url, { transports: ["websocket"], forceNew: true, reconnection: false });
     sockets.push(screen);

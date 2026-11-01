@@ -49,6 +49,11 @@ export const EVENTS = {
   frame: "game:frame",
   // Every screen reports what it is showing, for the admin dashboard: no reply.
   presence: "presence:update",
+  // The admin dashboard: it signs in with the admin token, then gets the live view whenever it changes, and a
+  // signal when a game session ends (its statistics are out of date).
+  adminWatch: "admin:watch",
+  adminLive: "admin:live",
+  adminSessions: "admin:sessions",
 } as const;
 
 // Room codes are four capital letters, leaving out I and O so they cannot be mistaken for 1 and 0.

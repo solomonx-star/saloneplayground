@@ -130,6 +130,7 @@ a.game-card{text-decoration:none}
 .admin-pulse{width:8px;height:8px;border-radius:50%;background:var(--lime);animation:admin-pulse 2s infinite}
 @keyframes admin-pulse{0%,100%{opacity:1}50%{opacity:.35}}
 @media(prefers-reduced-motion:reduce){.admin-pulse{animation:none}}
+.admin-updated.offline .admin-pulse{background:#ffb4a8;animation:none}
 .admin-ghost{border:1px solid #ffffff35;background:transparent;color:#f4f6ec;border-radius:5px;padding:8px 12px;font:10px 'DM Mono',monospace;letter-spacing:.08em;cursor:pointer}.admin-ghost:hover{background:#ffffff12}
 .admin-content{width:min(100%,1180px);margin:0 auto;padding:24px 16px 48px;box-sizing:border-box;display:flex;flex-direction:column;gap:28px}
 .admin-section{display:flex;flex-direction:column;gap:14px}

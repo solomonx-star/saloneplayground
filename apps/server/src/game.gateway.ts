@@ -1,14 +1,20 @@
-import { Inject } from "@nestjs/common";
+import { Inject, type OnModuleDestroy } from "@nestjs/common";
 import { ConnectedSocket, MessageBody, type OnGatewayDisconnect, type OnGatewayInit, SubscribeMessage, WebSocketGateway, WebSocketServer } from "@nestjs/websockets";
 import type { Server, Socket } from "socket.io";
 import { cleanPresence } from "@salone/games/online/admin";
 import { EVENTS, type Reply } from "@salone/games/online/protocol";
+import { ADMIN_OFF, ADMIN_WRONG } from "./admin.controller";
+import { AdminService } from "./admin.service";
 import { GuestsService } from "./guests.service";
 import { PresenceService } from "./presence.service";
 import { RoomError, RoomsService, type GuestRef } from "./rooms.service";
 
 // What the server remembers about each connection: who the guest is and which room they have open.
 type SocketData = { guest?: GuestRef; code?: string };
+// The Socket.IO room of signed-in admin dashboards.
+const ADMINS = "admins";
+// The live view is pushed to dashboards at most this often, however busy the site is.
+const ADMIN_PUSH_MS = 500;
 type Body = Record<string, unknown> | undefined;
 
 // Runs a request and turns the outcome into a reply for the screen: the value, or a message it can show.
@@ -26,7 +32,7 @@ async function reply<T>(work: () => Promise<T>): Promise<Reply<T>> {
 // requests; each request gets a Reply, and everyone in the room gets the room's new state as an update. Which web
 // addresses may connect is set in setup.ts from WEB_ORIGIN.
 @WebSocketGateway()
-export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
+export class GameGateway implements OnGatewayInit, OnGatewayDisconnect, OnModuleDestroy {
   @WebSocketServer() private server!: Server;
 
   // Explicit @Inject because the server runs with tsx, which does not emit the type metadata Nest would otherwise use.
@@ -34,10 +40,17 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
     @Inject(GuestsService) private readonly guests: GuestsService,
     @Inject(RoomsService) private readonly rooms: RoomsService,
     @Inject(PresenceService) private readonly presence: PresenceService,
+    @Inject(AdminService) private readonly admin: AdminService,
   ) {}
 
+  private adminPush: NodeJS.Timeout | null = null;
+
+  onModuleDestroy() { if (this.adminPush) clearTimeout(this.adminPush); }
+
   afterInit() {
-    this.rooms.onChange((view) => this.server.to(view.code).emit(EVENTS.update, view));
+    this.rooms.onChange((view) => { this.server.to(view.code).emit(EVENTS.update, view); this.pushLive(); });
+    this.presence.onChange(() => this.pushLive());
+    this.presence.onSession(() => { if (this.adminsWatching()) this.server.to(ADMINS).emit(EVENTS.adminSessions); });
     // Frames are sent many times a second: a screen that falls behind skips to the next rather than queueing them.
     this.rooms.onFrame((code, frame) => this.server.to(code).volatile.emit(EVENTS.frame, frame));
   }
@@ -133,6 +146,17 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
     try { await this.presence.report(socket.id, report); } catch (error) { console.error(error); }
   }
 
+  // An admin dashboard signs in with the admin token; it then gets the live view now and whenever it changes.
+  @SubscribeMessage(EVENTS.adminWatch)
+  watchAsAdmin(@ConnectedSocket() socket: Socket, @MessageBody() body: Body) {
+    return reply(async () => {
+      const problem = this.admin.tokenProblem(typeof body?.token === "string" ? body.token : "");
+      if (problem) throw new RoomError(problem === "off" ? ADMIN_OFF : ADMIN_WRONG);
+      await socket.join(ADMINS);
+      return this.admin.live();
+    });
+  }
+
   async handleDisconnect(socket: Socket) {
     try { await this.presence.disconnected(socket.id); } catch (error) { console.error(error); }
     const { guest, code } = this.data(socket);
@@ -140,6 +164,18 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
   }
 
   // ---- Inside ----
+
+  private adminsWatching() { return (this.server.sockets.adapter.rooms.get(ADMINS)?.size ?? 0) > 0; }
+
+  // Sends the live view to watching dashboards, gathering changes that come close together into one push.
+  private pushLive() {
+    if (this.adminPush || !this.adminsWatching()) return;
+    this.adminPush = setTimeout(() => {
+      this.adminPush = null;
+      if (!this.adminsWatching()) return;
+      this.admin.live().then((view) => this.server.to(ADMINS).emit(EVENTS.adminLive, view), (error) => console.error(error));
+    }, ADMIN_PUSH_MS);
+  }
 
   private data(socket: Socket): SocketData { return socket.data as SocketData; }
 

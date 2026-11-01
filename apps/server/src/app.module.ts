@@ -1,6 +1,7 @@
 import { networkInterfaces } from "node:os";
 import { Controller, Get, Module, Req, type DynamicModule } from "@nestjs/common";
 import { AdminController } from "./admin.controller";
+import { AdminService } from "./admin.service";
 import { CONFIG, type Config } from "./config";
 import { databaseProviders, DatabaseShutdown } from "./database";
 import { GameGateway } from "./game.gateway";
@@ -36,7 +37,7 @@ export class AppModule {
     return {
       module: AppModule,
       controllers: [HealthController, AdminController],
-      providers: [{ provide: CONFIG, useValue: config }, ...databaseProviders, DatabaseShutdown, GuestsService, RoomsService, PresenceService, GameGateway],
+      providers: [{ provide: CONFIG, useValue: config }, ...databaseProviders, DatabaseShutdown, GuestsService, RoomsService, PresenceService, AdminService, GameGateway],
     };
   }
 }
