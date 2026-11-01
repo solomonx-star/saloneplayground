@@ -18,8 +18,7 @@ function makeWorld(overrides: Partial<World> = {}): World {
     attackers: [],
     defenders: [...lineDefenders, mainDefender],
     mainDefender,
-    humanAttacks: false,
-    selected: null,
+    humans: new Set(),
     aiTarget: null,
     attack: LEVELS.normal,
     defense: LEVELS.normal,
@@ -142,7 +141,7 @@ describe("defenders", () => {
 
   it("predicts where the human attacker is running", () => {
     const human = body(200, 400, { direction: 1, vel: { x: 0.6, y: -0.8 } });
-    const world = makeWorld({ attackers: [human], humanAttacks: true, selected: human });
+    const world = makeWorld({ attackers: [human], humans: new Set([human]) });
     const goal = goalOf(world, human)!;
     expect(goal.y).toBe(72);
     expect(goal.x).toBeGreaterThan(200);

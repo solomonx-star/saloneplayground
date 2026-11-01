@@ -21,7 +21,7 @@ export function crossingSafe(world: World, a: Body, line: number, x: number, cou
   if (!guard) return true;
   const gap = Math.abs(guard.x - x) - TOUCH_RADIUS;
   if (gap <= 0) return false;
-  const guardSpeed = !world.humanAttacks && guard === world.selected ? TOUCH.humanSpeed * 0.8 : TOUCH.defenderSpeed * world.defense.speed;
+  const guardSpeed = world.humans.has(guard) ? TOUCH.humanSpeed * 0.8 : TOUCH.defenderSpeed * world.defense.speed;
   const attackerTime = (Math.abs(a.y - line) + 28) / (TOUCH.attackerSpeed * world.attack.speed * TOUCH.dashMultiplier);
   return gap / guardSpeed > attackerTime * courage;
 }
@@ -107,8 +107,8 @@ export function thinkAttacker(world: World, a: Body, dt: number) {
   }
 }
 
-export function moveComputerAttackers(world: World, dt: number, excluded?: Body) {
-  for (const attacker of world.attackers) if (attacker !== excluded) thinkAttacker(world, attacker, dt);
+export function moveComputerAttackers(world: World, dt: number) {
+  for (const attacker of world.attackers) if (!world.humans.has(attacker)) thinkAttacker(world, attacker, dt);
 }
 
 // Starting lane with the most room from the defenders.

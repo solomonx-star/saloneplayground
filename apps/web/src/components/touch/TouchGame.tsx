@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import Joystick from "@/components/Joystick";
 import HowToPlay from "./HowToPlay";
-import { FIELD_H, FIELD_W } from "./field";
+import { FIELD_H, FIELD_W } from "@salone/games/touch/field";
 import { createTouchScene, type MatchState, type Notice, type TouchInput } from "./scene";
-import { LEVELS, TOUCH, type Level } from "./settings";
+import { LEVELS, TOUCH, type Level } from "@salone/games/touch/settings";
 import { MUTED_KEY, readFlag, writeFlag } from "@/components/preferences";
 import { gameSound } from "@/components/sound";
 

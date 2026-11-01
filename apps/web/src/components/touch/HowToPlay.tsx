@@ -1,4 +1,4 @@
-import { TOUCH } from "./settings";
+import { TOUCH } from "@salone/games/touch/settings";
 
 type Step = "run" | "turn" | "main";
 

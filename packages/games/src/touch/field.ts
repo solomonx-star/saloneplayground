@@ -13,7 +13,7 @@ export const TOUCH_RADIUS = 26;
 
 export type Point = { x: number; y: number };
 
-// The parts of a Phaser game object the AI needs. Tests use plain objects with the same shape.
+// The parts of a player the AI needs: the match's own players, and plain objects in tests.
 export interface Body {
   x: number;
   y: number;

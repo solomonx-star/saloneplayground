@@ -5,10 +5,10 @@ import type { World } from "./world";
 
 export type DefenderIntent = "home" | "guard" | "lunge" | "bait";
 
-// The human-controlled attacker has no set route, so the defenders predict one from how that player is moving.
+// A human-controlled attacker has no set route, so the defenders predict one from how that player is moving.
 export function goalOf(world: World, player: Body): Point | null {
   const goal = (player.getData("goal") as Point | null | undefined) ?? null;
-  if (goal || !world.humanAttacks || player !== world.selected) return goal;
+  if (goal || !world.humans.has(player)) return goal;
   const y = player.getData("direction") === -1 ? HOME_LINE : TURN_LINE;
   const vel = (player.getData("vel") as Point | undefined) ?? { x: 0, y: 0 };
   const towardGoal = vel.y !== 0 && Math.sign(vel.y) === Math.sign(y - player.y);
@@ -43,7 +43,7 @@ export function projectedYAtMain(world: World, player: Body) {
 
 // The line an attacker will cross next, whether they are already committed to the run, and where they are lining up.
 export function attackerIntent(world: World, a: Body): { line: number | null; dashing: boolean; aimX: number } {
-  if (world.humanAttacks && a === world.selected) {
+  if (world.humans.has(a)) {
     const line = nextLineFor(a);
     const vel = (a.getData("vel") as Point | undefined) ?? { x: 0, y: 0 };
     const towardLine = line !== null && vel.y !== 0 && Math.sign(vel.y) === Math.sign(line - a.y);
@@ -117,9 +117,9 @@ export function guardMainLine(world: World, d: Body, dt: number) {
 }
 
 // Every computer defender guards its own line, instead of all following one target.
-export function moveComputerDefenders(world: World, dt: number, excluded?: Body) {
+export function moveComputerDefenders(world: World, dt: number) {
   for (const defender of world.defenders) {
-    if (defender === excluded) continue;
+    if (world.humans.has(defender)) continue;
     if (defender.getData("main")) guardMainLine(world, defender, dt);
     else guardLine(world, defender, dt);
   }
