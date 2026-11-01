@@ -1,0 +1,15 @@
+"use client";
+
+import Link from "next/link";
+import { GAMES } from "@/components/games";
+import { usePresence } from "@/online/presence";
+
+const futureGames = ["Skipping Rope", "Six Cup", "Rounders", "Akra", "Stopper Game", "Boatkidie", "Adai", "Play Cook", "Tamatis Cup", "Stone Gi Mi Road", "Monday–Tuesday", "Kick en Home", "Kick en Seize", "Snake and Leather", "Kick Seed", "Gbondo", "Taxi"];
+
+// The home page: the games shelf. Each game opens on its own screen.
+export default function GameShelf() {
+  // Games play best fullscreen; the browser only allows that from a tap or click.
+  usePresence(null, null, false);
+  const goFullscreen = () => { document.documentElement.requestFullscreen?.().catch(() => undefined); };
+  return <main className="shell library-screen"><header className="topbar"><a className="brand" href="#top"><span className="brand-mark">S</span><span>SALONE<span className="brand-light">PLAYGROUND</span></span></a><div className="topbar-right"><span className="online-dot"/> SIERRA LEONE · CHILDHOOD GAMES</div></header><section className="hero" id="top"><div className="hero-copy"><p className="eyebrow">THE PLAYGROUND IS OPEN</p><h1>Old-school games.<br/><em>New memories.</em></h1><p className="intro">A home for the games we grew up playing. Start with Balance Ball—quick feet, teamwork, and a homemade sock ball.</p><div className="hero-tags"><span>🏐 BALANCE BALL</span><span>🇸🇱 SALONE ROOTS</span><span>🎮 PLAY NOW</span></div></div><div className="hero-art" aria-hidden="true"><div className="sun"/><div className="hill hill-back"/><div className="hill hill-front"/><div className="art-player player-one">✦</div><div className="art-player player-two">✦</div><div className="art-player player-three">✦</div><div className="art-stamp">FREETOWN<br/><small>PLAYGROUND</small></div></div></section><section className="game-section"><div className="section-heading"><div><p className="eyebrow">PICK UP AND PLAY</p><h2>The games shelf</h2><p className="section-sub">Familiar playground games, ready for a new round.</p></div></div><div className="library-grid">{GAMES.map((game, index) => <Link className="game-card touch-card" key={game.slug} href={`/games/${game.slug}`} onClick={goFullscreen}><span className="game-card-icon">{game.icon}</span><span className="game-card-meta">GAME {String(index + 1).padStart(2, "0")} · PLAY NOW</span><strong>{game.name}</strong><span className="game-card-desc">{game.desc}</span><span className="game-card-cta">PLAY {("cta" in game ? game.cta : game.name).toUpperCase()} <b>→</b></span></Link>)}{futureGames.map((name, index) => <article className="game-card coming-card" key={name}><span className="game-card-icon">{["〰", "◉", "♧", "◎"][index % 4]}</span><span className="game-card-meta">GAME {String(index + GAMES.length + 1).padStart(2, "0")} · COMING SOON</span><strong>{name}</strong><span className="game-card-desc">A Sierra Leone playground favourite.</span><span className="game-card-cta">COMING SOON</span></article>)}</div></section><footer><span>MADE FOR THE GAMES WE GREW UP WITH.</span><span>MORE GAMES COMING SOON <b>✳</b></span></footer></main>;
+}

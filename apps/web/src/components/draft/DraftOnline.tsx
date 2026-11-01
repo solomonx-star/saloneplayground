@@ -12,6 +12,7 @@ import { gameSound as sound } from "@/components/sound";
 import { OnlineEntry, OnlineNotices, RoomCode } from "@/online/OnlineEntry";
 import { PartyJoin, PartyStart } from "@/online/PartyJoin";
 import { useRoom, type OnlineMode, type OnlineRoom } from "@/online/useRoom";
+import { useLeaveRoom } from "@/components/LeaveGuard";
 
 // Draft with other people's devices (see OnlineMode). Seat 1 plays Black (moves first), seat 2 White; an empty seat
 // can go to a computer player. Each player sees the board from their own side; the party screen shows it from
@@ -34,7 +35,7 @@ export default function DraftOnline({ onBack, onLocal, mode = "online", joinCode
   useEffect(() => { sound.muted = muted; }, [muted]);
 
   function toggleMuted() { const next = !muted; setMuted(next); writeFlag(MUTED_KEY, next); if (!next) sound.unlock(); }
-  function backToGames() { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); onBack(); }
+  function backToGames() { onBack(); }
 
   const counts = room?.match ? countPieces(room.match.board) : null;
   return <main className={`draft-screen${mode === "party" && room ? " party-screen" : ""}`}>
@@ -63,6 +64,7 @@ export default function DraftOnline({ onBack, onLocal, mode = "online", joinCode
 
 // The room before the game: how to join, the two seats, and (for the host) computer players and Start.
 function Lobby({ room, me, online }: { room: Room; me: string; online: Online }) {
+  const leaveRoom = useLeaveRoom(online.leave);
   const [level, setLevel] = useState<Level>("normal");
   const host = room.hostId === me;
   const full = room.seats.every((s) => s.guestId || s.cpu);
@@ -84,7 +86,7 @@ function Lobby({ room, me, online }: { room: Room; me: string; online: Online })
         {host && <label className="player-select"><span className="select-label">COMPUTER</span> <select value={level} onChange={(e) => setLevel(e.target.value as Level)}>{(Object.keys(LEVELS) as Level[]).map((key) => <option key={key} value={key}>{LEVELS[key].label}</option>)}</select></label>}
       </div>
       <div className="draft-buttons">
-        <button onClick={() => void online.leave()}>{room.party && host ? "END PARTY" : "LEAVE ROOM"}</button>
+        <button onClick={() => leaveRoom({ endsParty: room.party && host })}>{room.party && host ? "END PARTY" : "LEAVE ROOM"}</button>
         {host ? <button className="draft-stop" disabled={!full} onClick={() => void online.start()}>START GAME</button> : <span className="draft-turn">WAITING FOR THE HOST TO START</span>}
       </div>
     </div>
@@ -94,6 +96,7 @@ function Lobby({ room, me, online }: { room: Room; me: string; online: Online })
 // The game: your colour plays from the bottom of the board, and you move only on your turn. A turn is built by tapping
 // (a capture chain one jump at a time) and sent to the server, which checks it against the rules.
 function Game({ room, me, online }: { room: Room; me: string; online: Online }) {
+  const leaveRoom = useLeaveRoom(online.leave);
   const match = room.match!;
   const { board, side, last, result } = match;
   const seat = room.seats.findIndex((s) => s.guestId === me);
@@ -129,7 +132,7 @@ function Game({ room, me, online }: { room: Room; me: string; online: Online }) 
     <DraftBoard match={match} picker={picker} suggestion={progress.length ? null : suggestion} waiting={!myTurn} flipped={mine === "white"} onTap={() => { sound.unlock(); setHint(null); }} />
     <div className={`draft-message ${result ? "finished" : ""}`} role="status">{message}</div>
     <div className="draft-actions">
-      <div className="draft-buttons"><button onClick={() => void online.leave()}>{partyHost ? "END PARTY" : "LEAVE GAME"}</button></div>
+      <div className="draft-buttons"><button onClick={() => leaveRoom({ endsParty: partyHost, inMatch: true })}>{partyHost ? "END PARTY" : "LEAVE GAME"}</button></div>
       <span className="draft-turn">{result ? "GAME OVER" : `${name(side).toUpperCase()} · ${side.toUpperCase()}`}{myTurn && canCapture && !progress.length ? " · CAPTURE AVAILABLE" : ""}</span>
       <div className="draft-buttons">
         {myTurn && (progress.length > 0

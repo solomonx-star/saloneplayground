@@ -5,6 +5,8 @@ import { MUTED_KEY, readFlag, writeFlag } from "@/components/preferences";
 import { gameSound as sound } from "@/components/sound";
 import Board, { colour } from "@/components/tintanto/Board";
 import TinTanToOnline from "@/components/tintanto/TinTanToOnline";
+import { usePresence } from "@/online/presence";
+import GameSetup, { SettingsButton, SetupOption, type Choice } from "@/components/GameSetup";
 import { applyMove, newMatch, nextRound, restartRound, type Match } from "@salone/games/tintanto/match";
 import { chooseMove, DRAW_RULES, LEVELS, NEIGHBOURS, type Level, type Mark, type Move } from "@salone/games/tintanto/rules";
 
@@ -29,16 +31,31 @@ function reducer(state: State, action: Action): State {
   }
 }
 
+const MODES: Choice<Mode>[] = [
+  { value: "cpu", label: "vs CPU", hint: "You play blue against the computer." },
+  { value: "friend", label: "2 players", hint: "Two players take turns on this device." },
+  { value: "online", label: "Online", hint: "Play a friend on their own device." },
+  { value: "party", label: "Party (TV + phones)", hint: "This screen shows the board; players use their phones." },
+];
+
+// Tin Tan To starts on the setup screen; once the player starts, the game screen shows only the board.
 export default function TinTanToGame({ onBack }: { onBack: () => void }) {
   const [mode, setMode] = useState<Mode>("cpu");
-  if (mode === "online" || mode === "party") return <TinTanToOnline mode={mode} onBack={onBack} onLocal={() => setMode("cpu")} />;
-  return <LocalGame mode={mode} onMode={setMode} onBack={onBack} />;
+  const [level, setLevel] = useState<Level>("normal");
+  const [playing, setPlaying] = useState(false);
+  const local = mode === "cpu" || mode === "friend";
+  usePresence("tin-tan-to", mode, playing);
+  if (!playing) return <GameSetup title="Tin Tan To" intro="Three pieces each. Take turns sliding one piece along a line to the next empty point. Make three in a row on any line — except your own home row." onStart={() => setPlaying(true)} startLabel={local ? "START GAME" : "CONTINUE"}>
+    <SetupOption label="PLAY" value={mode} choices={MODES} onChange={setMode} />
+    {mode === "cpu" && <SetupOption label="LEVEL" value={level} choices={(Object.keys(LEVELS) as Level[]).map((key) => ({ value: key, label: LEVELS[key].label }))} onChange={setLevel} />}
+  </GameSetup>;
+  if (mode === "online" || mode === "party") return <TinTanToOnline mode={mode} onBack={onBack} onLocal={() => setPlaying(false)} />;
+  return <LocalGame mode={mode} level={level} onSettings={() => setPlaying(false)} onBack={onBack} />;
 }
 
 // Tin Tan To on one device: against the computer, or two players taking turns.
-function LocalGame({ mode, onMode, onBack }: { mode: Exclude<Mode, "online" | "party">; onMode: (mode: Mode) => void; onBack: () => void }) {
+function LocalGame({ mode, level, onSettings, onBack }: { mode: Exclude<Mode, "online" | "party">; level: Level; onSettings: () => void; onBack: () => void }) {
   const [state, dispatch] = useReducer(reducer, undefined, fresh);
-  const [level, setLevel] = useState<Level>("normal");
   // Tin Tan To only renders after a click, so storage can be read during the first render.
   const [muted, setMuted] = useState(() => readFlag(MUTED_KEY));
   const { match, selected } = state;
@@ -84,9 +101,8 @@ function LocalGame({ mode, onMode, onBack }: { mode: Exclude<Mode, "online" | "p
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  function changeMode(value: Mode) { onMode(value); dispatch({ type: "reset" }); }
   function toggleMuted() { const next = !muted; setMuted(next); writeFlag(MUTED_KEY, next); if (!next) sound.unlock(); }
-  function backToGames() { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); onBack(); }
+  function backToGames() { onBack(); }
 
   const targets = selected === null ? [] : NEIGHBOURS[selected].filter((p) => !board[p]);
   const name = (mark: Mark) => (mode === "cpu" ? (mark === CPU_MARK ? "The computer" : "You") : `Player ${mark}`);
@@ -103,20 +119,16 @@ function LocalGame({ mode, onMode, onBack }: { mode: Exclude<Mode, "online" | "p
       <button className="back-button" onClick={backToGames}>← <span>GAMES</span></button>
       <div><strong>TIN TAN TO</strong><small>SLIDE TO THREE IN A ROW</small></div>
       <div className="draft-header-right">
+        <SettingsButton onSettings={onSettings} />
         <button className="icon-button" onClick={toggleMuted} aria-label={muted ? "Turn sound on" : "Turn sound off"} aria-pressed={!muted}>{muted ? "🔇" : "🔊"}</button>
         <span className="draft-count">{labels.X} {scores.X} · {labels.O} {scores.O} · DRAW {scores.draws}</span>
       </div>
     </header>
     <section className="draft-content">
-      <div className="draft-intro"><p className="eyebrow">PEN AND PAPER</p><h1>Three pieces each.</h1><p>Take turns sliding one piece along a line to the next empty point. Make three in a row on any line — except your own home row.</p></div>
       <Board match={match} selected={selected} waiting={cpuTurn} onTap={tap}
         labels={mode === "cpu" ? { top: "CPU · HOME ROW", bottom: "YOUR HOME ROW" } : { top: "PLAYER O · HOME ROW", bottom: "PLAYER X · HOME ROW" }} />
       <div className={`draft-message ${result ? "finished" : ""}`} role="status">{message}</div>
       <div className="draft-actions">
-        <div className="draft-buttons">
-          <label className="player-select"><span className="select-label">PLAY</span> <select value={mode} onChange={(e) => changeMode(e.target.value as Mode)}><option value="cpu">vs CPU</option><option value="friend">2 players</option><option value="online">Online</option><option value="party">Party (TV + phones)</option></select></label>
-          {mode === "cpu" && <label className="player-select"><span className="select-label">LEVEL</span> <select value={level} onChange={(e) => setLevel(e.target.value as Level)}>{(Object.keys(LEVELS) as Level[]).map((key) => <option key={key} value={key}>{LEVELS[key].label}</option>)}</select></label>}
-        </div>
         <span className="draft-turn">{result ? "ROUND OVER" : `${name(toMove).toUpperCase()} · ${colour(toMove).toUpperCase()}`}</span>
         <div className="draft-buttons">
           <button onClick={() => dispatch({ type: result ? "next" : "restart" })} className={result ? "draft-stop" : ""}>{result ? "NEXT ROUND" : "RESTART ROUND"}</button>

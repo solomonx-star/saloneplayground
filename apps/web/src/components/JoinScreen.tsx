@@ -2,7 +2,9 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useBackToShelf } from "@/components/GameScreen";
+import LeaveGuard from "@/components/LeaveGuard";
+import { usePresence } from "@/online/presence";
 
 // A phone joining a party from its QR code: opens the right game with the room code filled in. The game screens load
 // in the browser only, since they read this device's saved name and connect to the game server straight away.
@@ -12,8 +14,12 @@ const DraftOnline = dynamic(() => import("@/components/draft/DraftOnline"), { ss
 const TouchOnline = dynamic(() => import("@/components/touch/TouchOnline"), { ssr: false });
 
 export default function JoinScreen({ room, game }: { room: string; game: string }) {
-  const router = useRouter();
-  const home = () => router.push("/");
+  return <LeaveGuard><Join room={room} game={game} /></LeaveGuard>;
+}
+
+function Join({ room, game }: { room: string; game: string }) {
+  const home = useBackToShelf();
+  usePresence(game === "tintanto" ? "tin-tan-to" : game || null, "phone", !!game);
   if (game === "ludo") return <LudoOnline mode="phone" joinCode={room} onBack={home} onLocal={home} />;
   if (game === "tintanto") return <TinTanToOnline mode="phone" joinCode={room} onBack={home} onLocal={home} />;
   if (game === "draft") return <DraftOnline mode="phone" joinCode={room} onBack={home} onLocal={home} />;

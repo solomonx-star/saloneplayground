@@ -1,19 +1,32 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import GameSetup, { SettingsButton, SetupOption } from "@/components/GameSetup";
 import Joystick from "@/components/Joystick";
+import { usePresence } from "@/online/presence";
 import { MUTED_KEY, readFlag, writeFlag } from "@/components/preferences";
 import { gameSound as sound } from "@/components/sound";
 import { createBalanceScene, type BalanceInput, type BalanceState, type Notice } from "./scene";
 import { lapOf } from "./logic";
 import { ALLMAN, BALANCE, FIELD_H, FIELD_W, LEVELS, MODES, type Level, type Mode } from "./settings";
 
+// Balance Ball starts on the setup screen; once the player starts, the game screen shows only the field.
 export default function BalanceGame({ onBack }: { onBack: () => void }) {
-  const hostRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<BalanceInput>({ x: 0, y: 0 });
   const [mode, setMode] = useState<Mode>("classic");
   const [level, setLevel] = useState<Level>("normal");
-  const [notice, setNotice] = useState<Notice>({ text: MODES.classic.blurb, kind: "ready" });
+  const [ready, setReady] = useState(false);
+  usePresence("balance-ball", "cpu", ready);
+  if (ready) return <BalanceField mode={mode} level={level} onSettings={() => setReady(false)} onBack={onBack} />;
+  return <GameSetup title="Balance Ball" intro="Dodge the sock ball in the middle, then switch sides when a player is hit." onStart={() => setReady(true)}>
+    <SetupOption label="MODE" value={mode} choices={(Object.keys(MODES) as Mode[]).map((key) => ({ value: key, label: MODES[key].label, hint: MODES[key].blurb }))} onChange={setMode} />
+    <SetupOption label="LEVEL" value={level} choices={(Object.keys(LEVELS) as Level[]).map((key) => ({ value: key, label: LEVELS[key].label }))} onChange={setLevel} />
+  </GameSetup>;
+}
+
+function BalanceField({ mode, level, onSettings, onBack }: { mode: Mode; level: Level; onSettings: () => void; onBack: () => void }) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<BalanceInput>({ x: 0, y: 0 });
+  const [notice, setNotice] = useState<Notice>({ text: MODES[mode].blurb, kind: "ready" });
   const [playing, setPlaying] = useState(false);
   const [state, setState] = useState<BalanceState>({ you: 0, them: 0, inning: 1, over: false, humanDodges: true, player: 1, round: 1, mode: "classic", gathered: 0, items: LEVELS.normal.items, standing: { you: 0, them: 0 } });
   // Balance Ball only renders after a click, so storage can be read during the first render.
@@ -53,10 +66,9 @@ export default function BalanceGame({ onBack }: { onBack: () => void }) {
   }, []);
 
   function begin() { sound.unlock(); window.dispatchEvent(new CustomEvent("balance-start", { detail: { mode, level } })); }
-  function changeMode(value: Mode) { setMode(value); setNotice({ text: MODES[value].blurb, kind: "ready" }); }
   function toggleMuted() { const next = !muted; setMuted(next); writeFlag(MUTED_KEY, next); if (!next) sound.unlock(); }
   function move(x: number, y: number) { inputRef.current = { x, y }; }
-  function exit() { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); onBack(); }
+  function exit() { onBack(); }
 
   const round24 = state.mode === "round24";
   const gather = state.mode === "gather";
@@ -74,9 +86,8 @@ export default function BalanceGame({ onBack }: { onBack: () => void }) {
         <button className="back-button" onClick={exit}>← <span>GAMES</span></button>
         <div className="game-title"><span className="brand-mark">S</span><strong>BALANCE BALL</strong><small>{MODES[mode].label.toUpperCase()}</small></div>
         <div className="game-settings">
+          <SettingsButton onSettings={onSettings} />
           <button className="icon-button" onClick={toggleMuted} aria-label={muted ? "Turn sound on" : "Turn sound off"} aria-pressed={!muted}>{muted ? "🔇" : "🔊"}</button>
-          <label className="player-select"><span className="select-label">MODE</span> <select value={mode} disabled={playing} onChange={(e) => changeMode(e.target.value as Mode)}>{(Object.keys(MODES) as Mode[]).map((key) => <option key={key} value={key}>{MODES[key].label}</option>)}</select></label>
-          <label className="player-select"><span className="select-label">LEVEL</span> <select value={level} disabled={playing} onChange={(e) => setLevel(e.target.value as Level)}>{(Object.keys(LEVELS) as Level[]).map((key) => <option key={key} value={key}>{LEVELS[key].label}</option>)}</select></label>
           <span className="game-role">{role}</span>
         </div>
       </header>
@@ -86,8 +97,8 @@ export default function BalanceGame({ onBack }: { onBack: () => void }) {
         <div className="scoreboard" aria-label={`Score: you ${state.you}, CPU ${state.them}`}><span>YOU<b>{state.you}</b></span><span>CPU<b>{state.them}</b></span><small>{counting} · {LEVELS[level].label.toUpperCase()}</small>{track && <i className="round-track" aria-hidden="true">{Array.from({ length: track.length }, (_, i) => <i key={i} className={i < track.done ? "done" : i === track.done ? "now" : undefined} />)}</i>}</div>
         {!playing && <button className="start-overlay" onClick={begin}><span>▶</span>{label}</button>}
       </div></div>
-      <div className="game-bottom touch-bottom">
-        <div className="touch-pad"><Joystick onMove={move} /></div>
+      <div className="game-bottom touch-bottom touch-centered">
+        <div className="touch-controls"><div className="touch-pad"><Joystick onMove={move} /></div></div>
         <span className="game-help touch-keys">{state.humanDodges ? `WASD / arrows: ${allman ? "move the gold-ringed player" : gather ? "run, pick up and carry caps" : "dodge"}` : "WASD / arrows: move your thrower · click to throw · Space: throw at the dodger"} · the ball must reach the other end before it is thrown again</span>
         <span className="game-help touch-rules">{rules}</span>
       </div>

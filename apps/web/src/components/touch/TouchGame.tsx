@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import GameSetup, { SettingsButton, SetupOption, type Choice } from "@/components/GameSetup";
 import Joystick from "@/components/Joystick";
+import { usePresence } from "@/online/presence";
 import HowToPlay from "./HowToPlay";
 import TouchOnline from "./TouchOnline";
 import { FIELD_H, FIELD_W } from "@salone/games/touch/field";
@@ -14,18 +16,32 @@ const HOW_TO_SEEN_KEY = "salone-touch-how-to-seen";
 
 type Mode = "cpu" | "online" | "party";
 
+const MODES: Choice<Mode>[] = [
+  { value: "cpu", label: "vs CPU", hint: "You and computer teammates against a computer team." },
+  { value: "online", label: "Online", hint: "Play on teams with friends on their own devices." },
+  { value: "party", label: "Party (TV + phones)", hint: "This screen shows the field; players use their phones." },
+];
+
+// Touch starts on the setup screen; once the player starts, the game screen shows only the field.
 export default function TouchGame({ onBack }: { onBack: () => void }) {
   const [mode, setMode] = useState<Mode>("cpu");
-  if (mode !== "cpu") return <TouchOnline mode={mode} onBack={onBack} onLocal={() => setMode("cpu")} />;
-  return <LocalTouch onMode={setMode} onBack={onBack} />;
+  const [level, setLevel] = useState<Level>("normal");
+  const [players, setPlayers] = useState(4);
+  const [ready, setReady] = useState(false);
+  usePresence("touch", mode, ready);
+  if (!ready) return <GameSetup title="Touch" intro="Run the lines, turn at the far side, and make it home without being touched." onStart={() => setReady(true)} startLabel={mode === "cpu" ? "START GAME" : "CONTINUE"}>
+    <SetupOption label="PLAY" value={mode} choices={MODES} onChange={setMode} />
+    {mode === "cpu" && <SetupOption label="LEVEL" value={level} choices={(Object.keys(LEVELS) as Level[]).map((key) => ({ value: key, label: LEVELS[key].label }))} onChange={setLevel} />}
+    {mode === "cpu" && <SetupOption label="TEAM SIZE" value={players} choices={[3, 4, 5, 6].map((n) => ({ value: n, label: String(n) }))} onChange={setPlayers} />}
+  </GameSetup>;
+  if (mode !== "cpu") return <TouchOnline mode={mode} onBack={onBack} onLocal={() => setReady(false)} />;
+  return <LocalTouch level={level} players={players} onSettings={() => setReady(false)} onBack={onBack} />;
 }
 
 // Touch on one device: you and computer teammates against a computer team.
-function LocalTouch({ onMode, onBack }: { onMode: (mode: Mode) => void; onBack: () => void }) {
+function LocalTouch({ level, players, onSettings, onBack }: { level: Level; players: number; onSettings: () => void; onBack: () => void }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [notice, setNotice] = useState<Notice>({ text: "Your team is attacking. Reach the far line and return!", kind: "ready" });
-  const [players, setPlayers] = useState(4);
-  const [level, setLevel] = useState<Level>("normal");
   const [match, setMatch] = useState<MatchState>({ you: 0, them: 0, turn: 1, totalTurns: TOUCH.turnsPerTeam * 2, over: false });
   const [isPlaying, setIsPlaying] = useState(false);
   // TouchGame only renders in the browser (it opens from a click), so storage can be read during the first render.
@@ -48,7 +64,7 @@ function LocalTouch({ onMode, onBack }: { onMode: (mode: Mode) => void; onBack: 
         width: FIELD_W,
         height: FIELD_H,
         backgroundColor: "#174b38",
-        scene: createTouchScene(Phaser, inputRef, gameSound),
+        scene: createTouchScene(Phaser, inputRef, gameSound, { count: players, level }),
         scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
         render: { antialias: true },
       });
@@ -67,16 +83,11 @@ function LocalTouch({ onMode, onBack }: { onMode: (mode: Mode) => void; onBack: 
       window.removeEventListener("touch-match", matchUpdate);
       game?.destroy(true);
     };
-  }, []);
+  }, [level, players]);
 
   function startGame() { gameSound.unlock(); window.dispatchEvent(new Event("touch-start")); }
-  function backToGames() {
-    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
-    onBack();
-  }
-  function changeLevel(value: Level) { setLevel(value); window.dispatchEvent(new CustomEvent("touch-level", { detail: value })); }
+  function backToGames() { onBack(); }
   function newMatch() { window.dispatchEvent(new Event("touch-new-match")); }
-  function setPlayerCount(value: number) { setPlayers(value); window.dispatchEvent(new CustomEvent("touch-count", { detail: value })); }
   function move(x: number, y: number) {
     inputRef.current = { ...inputRef.current, x, y };
     window.dispatchEvent(new CustomEvent("touch-move", { detail: { x, y } }));
@@ -98,11 +109,9 @@ function LocalTouch({ onMode, onBack }: { onMode: (mode: Mode) => void; onBack: 
         <button className="back-button" onClick={backToGames}>← <span>GAMES</span></button>
         <div className="game-title"><span className="brand-mark">S</span><strong>TOUCH</strong><small>TURN {match.turn}/{match.totalTurns}</small></div>
         <div className="game-settings">
+          <SettingsButton onSettings={onSettings} />
           <button className="icon-button" onClick={() => setShowHelp(true)} aria-label="How to play">?</button>
           <button className="icon-button" onClick={toggleMuted} aria-label={muted ? "Turn sound on" : "Turn sound off"} aria-pressed={!muted}>{muted ? "🔇" : "🔊"}</button>
-          <label className="player-select"><span className="select-label">PLAY</span> <select value="cpu" onChange={(e) => onMode(e.target.value as Mode)}><option value="cpu">vs CPU</option><option value="online">Online</option><option value="party">Party (TV + phones)</option></select></label>
-          <label className="player-select"><span className="select-label">LEVEL</span> <select value={level} onChange={(e) => changeLevel(e.target.value as Level)}>{(Object.keys(LEVELS) as Level[]).map((key) => <option key={key} value={key}>{LEVELS[key].label}</option>)}</select></label>
-          <label className="player-select"><span className="select-label">TEAM</span> <select value={players} onChange={(e) => setPlayerCount(Number(e.target.value))}>{[3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
         </div>
       </header>
       <div className="game-stage"><div className="game-frame touch-frame">
@@ -115,10 +124,9 @@ function LocalTouch({ onMode, onBack }: { onMode: (mode: Mode) => void; onBack: 
             ? <div className="match-result" role="dialog" aria-label="Match result"><small>FULL TIME</small><strong>{result}</strong><span>{match.you} – {match.them}</span><button onClick={newMatch}>▶ PLAY AGAIN</button></div>
             : !isPlaying && <button className="start-overlay" onClick={startGame}><span>▶</span>{notice.kind === "success" ? "NEXT RUN" : notice.kind === "danger" ? "NEXT TURN" : "START GAME"}</button>}
       </div></div>
-      <div className="game-bottom touch-bottom">
+      <div className="game-bottom touch-bottom touch-centered">
+        <div className="touch-controls">
         <div className="touch-pad"><Joystick onMove={move} /></div>
-        <span className="game-help touch-keys">WASD / arrows: move · Shift: sprint · Space: switch player · or tap a player</span>
-        <span className="game-help touch-rules">Line crossed +{TOUCH.linePoints} · home +{TOUCH.homePoints} · a touch swaps sides</span>
         <div className="touch-actions">
           <button
             className="action-button sprint"
@@ -128,6 +136,9 @@ function LocalTouch({ onMode, onBack }: { onMode: (mode: Mode) => void; onBack: 
           >SPRINT</button>
           <button className="action-button" onClick={switchPlayer}>SWITCH</button>
         </div>
+        </div>
+        <span className="game-help touch-keys">WASD / arrows: move · Shift: sprint · Space: switch player · or tap a player</span>
+        <span className="game-help touch-rules">Line crossed +{TOUCH.linePoints} · home +{TOUCH.homePoints} · a touch swaps sides</span>
       </div>
     </main>
   );

@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import GameSetup, { SettingsButton, SetupOption } from "@/components/GameSetup";
 import Joystick from "@/components/Joystick";
+import { usePresence } from "@/online/presence";
 import { MUTED_KEY, readFlag, readNumber, writeFlag, writeNumber } from "@/components/preferences";
 import { gameSound as sound } from "@/components/sound";
 import { createSeekScene, type Notice, type SeekInput, type SeekScore } from "@/components/seek/scene";
@@ -9,16 +11,26 @@ import { FIELD_H, FIELD_W, LEVELS, SEEK, type Level } from "@/components/seek/se
 
 const bestKey = (level: Level) => `salone-seek-best-${level}`;
 
+// Hide and Seek starts on the setup screen; once the player starts, the game screen shows only the yard.
 export default function HideSeekGame({ onBack }: { onBack: () => void }) {
+  const [level, setLevel] = useState<Level>("normal");
+  const [ready, setReady] = useState(false);
+  usePresence("hide-and-seek", "solo", ready);
+  if (ready) return <SeekField level={level} onSettings={() => setReady(false)} onBack={onBack} />;
+  return <GameSetup title="Hide and Seek" intro="Play Kech: you are the seeker. Count at home, then search the yard and touch every hider before they reach HOME." onStart={() => setReady(true)}>
+    <SetupOption label="LEVEL" value={level} choices={(Object.keys(LEVELS) as Level[]).map((key) => ({ value: key, label: LEVELS[key].label }))} onChange={setLevel} />
+  </GameSetup>;
+}
+
+function SeekField({ level, onSettings, onBack }: { level: Level; onSettings: () => void; onBack: () => void }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<SeekInput>({ x: 0, y: 0, sprint: false });
   const [notice, setNotice] = useState<Notice>({ text: "You are the seeker. Count at HOME while everyone hides.", kind: "ready" });
   const [playing, setPlaying] = useState(false);
-  const [level, setLevel] = useState<Level>("normal");
-  const [score, setScore] = useState<SeekScore>({ caught: 0, safe: 0, total: SEEK.hiders, seconds: LEVELS.normal.seconds, over: false });
+  const [score, setScore] = useState<SeekScore>({ caught: 0, safe: 0, total: SEEK.hiders, seconds: LEVELS[level].seconds, over: false });
   // Hide and Seek only renders after a click, so storage can be read during the first render.
   const [muted, setMuted] = useState(() => readFlag(MUTED_KEY));
-  const [best, setBest] = useState(() => readNumber(bestKey("normal")));
+  const [best] = useState(() => readNumber(bestKey(level)));
 
   useEffect(() => { sound.muted = muted; }, [muted]);
 
@@ -61,11 +73,10 @@ export default function HideSeekGame({ onBack }: { onBack: () => void }) {
   }, [score.over, score.caught, level]);
 
   function start() { sound.unlock(); window.dispatchEvent(new CustomEvent("seek-start", { detail: level })); }
-  function changeLevel(value: Level) { setLevel(value); setBest(readNumber(bestKey(value))); }
   function move(x: number, y: number) { inputRef.current = { ...inputRef.current, x, y }; }
   function setSprint(on: boolean) { inputRef.current = { ...inputRef.current, sprint: on }; }
   function toggleMuted() { const next = !muted; setMuted(next); writeFlag(MUTED_KEY, next); if (!next) sound.unlock(); }
-  function backToGames() { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); onBack(); }
+  function backToGames() { onBack(); }
 
   const shownBest = Math.max(best, score.over ? score.caught : 0);
   const minutes = `${Math.floor(score.seconds / 60)}:${String(score.seconds % 60).padStart(2, "0")}`;
@@ -75,8 +86,8 @@ export default function HideSeekGame({ onBack }: { onBack: () => void }) {
         <button className="back-button" onClick={backToGames}>← <span>GAMES</span></button>
         <div className="game-title"><span className="brand-mark">S</span><strong>PLAY KECH</strong><small>HIDE AND SEEK</small></div>
         <div className="game-settings">
+          <SettingsButton onSettings={onSettings} />
           <button className="icon-button" onClick={toggleMuted} aria-label={muted ? "Turn sound on" : "Turn sound off"} aria-pressed={!muted}>{muted ? "🔇" : "🔊"}</button>
-          <label className="player-select"><span className="select-label">LEVEL</span> <select value={level} disabled={playing} onChange={(e) => changeLevel(e.target.value as Level)}>{(Object.keys(LEVELS) as Level[]).map((key) => <option key={key} value={key}>{LEVELS[key].label}</option>)}</select></label>
         </div>
       </header>
       <div className="game-stage"><div className="game-frame">
@@ -85,18 +96,20 @@ export default function HideSeekGame({ onBack }: { onBack: () => void }) {
         <div className="scoreboard" aria-label={`Caught ${score.caught}, safe ${score.safe}, ${score.seconds} seconds left`}><span>CAUGHT<b>{score.caught}</b></span><span>SAFE<b>{score.safe}</b></span><small>{playing ? `TIME ${minutes}` : `BEST ${shownBest}/${score.total} · ${LEVELS[level].label.toUpperCase()}`}</small></div>
         {!playing && <button className="start-overlay" onClick={start}><span>▶</span>{score.over ? "PLAY AGAIN" : "START GAME"}</button>}
       </div></div>
-      <div className="game-bottom touch-bottom">
-        <div className="touch-pad"><Joystick onMove={move} /></div>
+      <div className="game-bottom touch-bottom touch-centered">
+        <div className="touch-controls">
+          <div className="touch-pad"><Joystick onMove={move} /></div>
+          <div className="touch-actions">
+            <button
+              className="action-button sprint"
+              onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); setSprint(true); }}
+              onPointerUp={() => setSprint(false)}
+              onPointerCancel={() => setSprint(false)}
+            >SPRINT</button>
+          </div>
+        </div>
         <span className="game-help touch-keys">WASD / arrows: search · Shift: sprint · Get close to spot a hider, then touch them before they reach HOME</span>
         <span className="game-help touch-rules">Rustling spots give hiders away · catch them before they reach HOME</span>
-        <div className="touch-actions">
-          <button
-            className="action-button sprint"
-            onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); setSprint(true); }}
-            onPointerUp={() => setSprint(false)}
-            onPointerCancel={() => setSprint(false)}
-          >SPRINT</button>
-        </div>
       </div>
     </main>
   );

@@ -12,6 +12,7 @@ import { gameSound as sound } from "@/components/sound";
 import { OnlineEntry, OnlineNotices, RoomCode } from "@/online/OnlineEntry";
 import { PartyJoin, PartyStart } from "@/online/PartyJoin";
 import { useRoom, type OnlineMode, type OnlineRoom } from "@/online/useRoom";
+import { useLeaveRoom } from "@/components/LeaveGuard";
 import { createOnlineTouchScene, type OnlineFeed } from "./onlineScene";
 
 // Touch with other people's devices (see OnlineMode). Two teams, Blue and Orange; seats alternate between them and
@@ -39,7 +40,7 @@ export default function TouchOnline({ onBack, onLocal, mode = "online", joinCode
   useEffect(() => { sound.muted = muted; }, [muted]);
 
   function toggleMuted() { const next = !muted; setMuted(next); writeFlag(MUTED_KEY, next); if (!next) sound.unlock(); }
-  function backToGames() { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); onBack(); }
+  function backToGames() { onBack(); }
 
   if (room && room.status === "playing") return <Match room={room} me={me} mode={mode} online={online} muted={muted} onMute={toggleMuted} onBack={backToGames} />;
   return <main className="draft-screen">
@@ -65,6 +66,7 @@ export default function TouchOnline({ onBack, onLocal, mode = "online", joinCode
 
 // The room before the match: how to join, the two teams, and (for the host) the team size, the computer level and Start.
 function Lobby({ room, me, online }: { room: Room; me: string; online: Online }) {
+  const leaveRoom = useLeaveRoom(online.leave);
   const host = room.hostId === me;
   const mySeat = room.seats.findIndex((s) => s.guestId === me);
   const { count, level } = room.options;
@@ -95,7 +97,7 @@ function Lobby({ room, me, online }: { room: Room; me: string; online: Online })
         <label className="player-select"><span className="select-label">COMPUTER</span> <select value={level} disabled={!host} onChange={(e) => void online.setOptions({ level: e.target.value as Level })}>{(Object.keys(LEVELS) as Level[]).map((key) => <option key={key} value={key}>{LEVELS[key].label}</option>)}</select></label>
       </div>
       <div className="draft-buttons">
-        <button onClick={() => void online.leave()}>{room.party && host ? "END PARTY" : "LEAVE ROOM"}</button>
+        <button onClick={() => leaveRoom({ endsParty: room.party && host })}>{room.party && host ? "END PARTY" : "LEAVE ROOM"}</button>
         {host ? <button className="draft-stop" disabled={!anyone} onClick={() => void online.start()}>START MATCH</button> : <span className="draft-turn">WAITING FOR THE HOST TO START</span>}
       </div>
     </div>
@@ -169,6 +171,7 @@ function useMatchState(online: Online, room: Room, me: string) {
 // The live match. On a computer or a party's shared screen: the field, with the stick and buttons below it (none on
 // the shared screen, which only watches). On a phone in a party: just the controller, since the field is on the TV.
 function Match({ room, me, mode, online, muted, onMute, onBack }: { room: Room; me: string; mode: OnlineMode; online: Online; muted: boolean; onMute: () => void; onBack: () => void }) {
+  const leaveRoom = useLeaveRoom(online.leave);
   const { hud, notice } = useMatchState(online, room, me);
   const inputRef = useRef<TouchInput>({ x: 0, y: 0, sprint: false });
   const seated = room.seats.some((s) => s.guestId === me);
@@ -190,19 +193,19 @@ function Match({ room, me, mode, online, muted, onMute, onBack }: { room: Room; 
   const overlay = over
     ? <div className="match-result" role="dialog" aria-label="Match result"><small>FULL TIME</small><strong>{winner}</strong><span>{blue} – {orange}</span>{(seated || partyHost) && <button onClick={() => void online.act({ type: "rematch" })}>▶ PLAY AGAIN</button>}</div>
     : between && (seated || partyHost) ? <button className="start-overlay" onClick={begin}><span>▶</span>{hud?.phase === "ready" && hud.turn === 1 && blue + orange === 0 ? "START MATCH" : "NEXT RUN"}</button> : null;
-  const controls = <>
+  const controls = <div className="touch-controls">
     <div className="touch-pad"><Joystick onMove={move} /></div>
     <div className="touch-actions">
       <button className="action-button sprint" onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); setSprint(true); }} onPointerUp={() => setSprint(false)} onPointerCancel={() => setSprint(false)}>SPRINT</button>
       <button className="action-button" disabled={!defending} onClick={() => void online.act({ type: "switch" })}>SWITCH</button>
     </div>
-  </>;
+  </div>;
   const header = <header className="game-topbar">
     <button className="back-button" onClick={onBack}>← <span>GAMES</span></button>
     <div className="game-title"><span className="brand-mark">S</span><strong>TOUCH</strong><small>{room.party ? "PARTY" : "ONLINE"} · ROOM {room.code}</small></div>
     <div className="game-settings">
       <button className="icon-button" onClick={onMute} aria-label={muted ? "Turn sound on" : "Turn sound off"} aria-pressed={!muted}>{muted ? "🔇" : "🔊"}</button>
-      <button className="back-button" onClick={() => void online.leave()}>{partyHost ? "END PARTY" : "LEAVE"}</button>
+      <button className="back-button" onClick={() => leaveRoom({ endsParty: partyHost, inMatch: true })}>{partyHost ? "END PARTY" : "LEAVE"}</button>
     </div>
   </header>;
   const errors = <OnlineNotices connection={online.connection} error={online.error} onDismiss={online.clearError} />;
@@ -221,7 +224,7 @@ function Match({ room, me, mode, online, muted, onMute, onBack }: { room: Room; 
         {scoreboard}
         {overlay}
       </section>
-      <div className="game-bottom touch-bottom touch-phone-controls">{controls}</div>
+      <div className="game-bottom touch-bottom touch-centered touch-phone-controls">{controls}</div>
     </main>;
   }
 
@@ -236,7 +239,7 @@ function Match({ room, me, mode, online, muted, onMute, onBack }: { room: Room; 
     </div></div>
     {partyHost
       ? <div className="game-bottom"><span className="game-help">Players use their phones as controllers. Anyone can start the next run.</span><span className="game-help">Line crossed +{TOUCH.linePoints} · home +{TOUCH.homePoints} · a touch swaps sides</span></div>
-      : <div className="game-bottom touch-bottom">
+      : <div className="game-bottom touch-bottom touch-centered">
         {controls}
         <span className="game-help touch-keys">WASD / arrows: move · Shift: sprint · Space or tap a defender: switch (when defending)</span>
         <span className="game-help touch-rules">Line crossed +{TOUCH.linePoints} · home +{TOUCH.homePoints} · a touch swaps sides</span>

@@ -1,5 +1,5 @@
-import BalanceBallGame from "@/components/BalanceBallGame";
+import GameShelf from "@/components/GameShelf";
 
 export default function Home() {
-  return <BalanceBallGame />;
+  return <GameShelf />;
 }

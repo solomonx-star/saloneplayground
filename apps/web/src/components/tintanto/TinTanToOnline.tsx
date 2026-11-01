@@ -7,6 +7,7 @@ import Board, { colour } from "@/components/tintanto/Board";
 import { OnlineEntry, OnlineNotices, RoomCode } from "@/online/OnlineEntry";
 import { PartyJoin, PartyStart } from "@/online/PartyJoin";
 import { useRoom, type OnlineMode, type OnlineRoom } from "@/online/useRoom";
+import { useLeaveRoom } from "@/components/LeaveGuard";
 import type { Match } from "@salone/games/tintanto/match";
 import { DRAW_RULES, LEVELS, NEIGHBOURS, type Level, type Mark } from "@salone/games/tintanto/rules";
 import type { RoomView } from "@salone/games/online/protocol";
@@ -28,7 +29,7 @@ export default function TinTanToOnline({ onBack, onLocal, mode = "online", joinC
   useEffect(() => { sound.muted = muted; }, [muted]);
 
   function toggleMuted() { const next = !muted; setMuted(next); writeFlag(MUTED_KEY, next); if (!next) sound.unlock(); }
-  function backToGames() { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); onBack(); }
+  function backToGames() { onBack(); }
 
   const scores = room?.match?.scores;
   const seatName = (i: number) => room?.seats[i]?.name || `Seat ${i + 1}`;
@@ -63,6 +64,7 @@ type Online = OnlineRoom<Match>;
 // The room before the game: how to join (the code, or on the party screen the QR code too), the two seats, and (for
 // the host) computer players and Start.
 function Lobby({ room, me, online }: { room: RoomView<Match>; me: string; online: Online }) {
+  const leaveRoom = useLeaveRoom(online.leave);
   const [level, setLevel] = useState<Level>("normal");
   const host = room.hostId === me;
   const full = room.seats.every((s) => s.guestId || s.cpu);
@@ -84,7 +86,7 @@ function Lobby({ room, me, online }: { room: RoomView<Match>; me: string; online
         {host && <label className="player-select"><span className="select-label">COMPUTER</span> <select value={level} onChange={(e) => setLevel(e.target.value as Level)}>{(Object.keys(LEVELS) as Level[]).map((key) => <option key={key} value={key}>{LEVELS[key].label}</option>)}</select></label>}
       </div>
       <div className="draft-buttons">
-        <button onClick={() => void online.leave()}>{room.party && host ? "END PARTY" : "LEAVE ROOM"}</button>
+        <button onClick={() => leaveRoom({ endsParty: room.party && host })}>{room.party && host ? "END PARTY" : "LEAVE ROOM"}</button>
         {host ? <button className="draft-stop" disabled={!full} onClick={() => void online.start()}>START GAME</button> : <span className="draft-turn">WAITING FOR THE HOST TO START</span>}
       </div>
     </div>
@@ -94,6 +96,7 @@ function Lobby({ room, me, online }: { room: RoomView<Match>; me: string; online
 // The game: your seat's colour plays at the bottom of the board and you move only on your turn. The party screen
 // (no seat) shows blue at the bottom and can start the next round.
 function Game({ room, me, act, leave }: { room: RoomView<Match>; me: string; act: Online["act"]; leave: Online["leave"] }) {
+  const leaveRoom = useLeaveRoom(leave);
   const [selected, setSelected] = useState<number | null>(null);
   const match = room.match!;
   const { board, toMove, result, last, moves } = match;
@@ -149,7 +152,7 @@ function Game({ room, me, act, leave }: { room: RoomView<Match>; me: string; act
     <Board match={match} selected={picked} flipped={seat === 1} waiting={!myTurn} onTap={tap} labels={labels} />
     <div className={`draft-message ${result ? "finished" : ""}`} role="status">{message}</div>
     <div className="draft-actions">
-      <div className="draft-buttons"><button onClick={() => void leave()}>{partyHost ? "END PARTY" : "LEAVE GAME"}</button></div>
+      <div className="draft-buttons"><button onClick={() => leaveRoom({ endsParty: partyHost, inMatch: true })}>{partyHost ? "END PARTY" : "LEAVE GAME"}</button></div>
       <span className="draft-turn">{result ? "ROUND OVER" : `${name(toMove).toUpperCase()} · ${colour(toMove).toUpperCase()}`}</span>
       <div className="draft-buttons">{result && (seat >= 0 || partyHost) && <button className="draft-stop" onClick={() => void act({ type: "next" })}>NEXT ROUND</button>}</div>
     </div>

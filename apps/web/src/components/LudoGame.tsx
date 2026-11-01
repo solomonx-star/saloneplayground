@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { MUTED_KEY, readFlag, writeFlag } from "@/components/preferences";
 import { gameSound as sound } from "@/components/sound";
 import LudoBoard, { title, type Moving } from "@/components/ludo/LudoBoard";
+import GameSetup, { SettingsButton, SetupOption, SetupToggles, type Choice } from "@/components/GameSetup";
 import LudoOnline from "@/components/ludo/LudoOnline";
-import RuleChips from "@/components/ludo/RuleChips";
+import { usePresence } from "@/online/presence";
 import TurnClock from "@/components/ludo/TurnClock";
 import { useLudoControls } from "@/components/ludo/useLudoControls";
 import { cellOf, COLOUR_HEX } from "@salone/games/ludo/board";
@@ -24,23 +25,45 @@ const YOU: Colour = "red";
 const STAND_IN: Level = "normal";
 const face = () => 1 + Math.floor(Math.random() * 6);
 
+type Settings = { opponents: Opponents; players: number; level: Level; rules: Rules };
+
+const OPPONENTS: Choice<Opponents>[] = [
+  { value: "cpu", label: "vs CPU", hint: "You are red. The computer plays the other colours." },
+  { value: "friends", label: "Pass and play", hint: "Everyone plays on this device, passing it round." },
+  { value: "online", label: "Online", hint: "Play friends on their own devices. You pick the players and house rules in the room." },
+  { value: "party", label: "Party (TV + phones)", hint: "This screen shows the board; players use their phones. You pick the players and house rules next." },
+];
+
+// Ludo starts on the setup screen; once the player starts, the game screen shows only the board and the dice.
 export default function LudoGame({ onBack }: { onBack: () => void }) {
-  const [opponents, setOpponents] = useState<Opponents>("cpu");
-  if (opponents === "online" || opponents === "party") return <LudoOnline mode={opponents} onBack={onBack} onLocal={() => setOpponents("cpu")} />;
-  return <LocalLudo opponents={opponents} onOpponents={setOpponents} onBack={onBack} />;
+  const [settings, setSettings] = useState<Settings>({ opponents: "cpu", players: 4, level: "normal", rules: NO_RULES });
+  const [playing, setPlaying] = useState(false);
+  const { opponents } = settings;
+  usePresence("ludo", opponents, playing);
+  if (!playing) return <LudoSetup settings={settings} onChange={setSettings} onStart={() => setPlaying(true)} />;
+  if (opponents === "online" || opponents === "party") return <LudoOnline mode={opponents} onBack={onBack} onLocal={() => setPlaying(false)} />;
+  return <LocalLudo settings={{ ...settings, opponents }} onSettings={() => setPlaying(false)} onBack={onBack} />;
+}
+
+function LudoSetup({ settings, onChange, onStart }: { settings: Settings; onChange: (settings: Settings) => void; onStart: () => void }) {
+  const local = settings.opponents === "cpu" || settings.opponents === "friends";
+  return <GameSetup title="Ludo" intro="Two dice, four tokens each. Get all your tokens home first." onStart={onStart} startLabel={local ? "START GAME" : "CONTINUE"}>
+    <SetupOption label="PLAY" value={settings.opponents} choices={OPPONENTS} onChange={(opponents) => onChange({ ...settings, opponents })} />
+    {local && <SetupOption label="PLAYERS" value={settings.players} choices={[2, 3, 4].map((n) => ({ value: n, label: String(n) }))} onChange={(players) => onChange({ ...settings, players })} />}
+    {settings.opponents === "cpu" && <SetupOption label="LEVEL" value={settings.level} choices={(Object.keys(LEVELS) as Level[]).map((key) => ({ value: key, label: LEVELS[key].label }))} onChange={(level) => onChange({ ...settings, level })} />}
+    {local && <SetupToggles label="HOUSE RULES" items={(Object.keys(RULES) as Rule[]).map((key) => ({ key, label: RULES[key].label, hint: RULES[key].blurb }))} on={settings.rules} onToggle={(rule) => onChange({ ...settings, rules: { ...settings.rules, [rule]: !settings.rules[rule] } })} help="No house rules: a double 6, a capture or a token reaching home earns another roll. Tap a rule to switch it on." />}
+  </GameSetup>;
 }
 
 // Ludo on one device: against the computer, or friends passing the device round.
-function LocalLudo({ opponents, onOpponents, onBack }: { opponents: Exclude<Opponents, "online" | "party">; onOpponents: (value: Opponents) => void; onBack: () => void }) {
-  const [rules, setRules] = useState<Rules>(NO_RULES);
-  const [players, setPlayers] = useState(4);
-  const [level, setLevel] = useState<Level>("normal");
-  const [game, setGame] = useState<Game>(() => newGame(4));
+function LocalLudo({ settings, onSettings, onBack }: { settings: Settings & { opponents: "cpu" | "friends" }; onSettings: () => void; onBack: () => void }) {
+  const { opponents, rules, players, level } = settings;
+  const [game, setGame] = useState<Game>(() => newGame(players, rules));
   // The two dice as last rolled (or flickering while they roll).
   const [pair, setPair] = useState<[number, number]>([6, 6]);
   const [rolling, setRolling] = useState(false);
   const [moving, setMoving] = useState<(Moving & { play: Play }) | null>(null);
-  const [notice, setNotice] = useState("Two dice, four tokens each. Switch on any house rules below, then roll.");
+  const [notice, setNotice] = useState("Two dice, four tokens each.");
   // Turn Timer: when the current action began.
   const [actionAt, setActionAt] = useState(() => Date.now());
   // Ludo only renders after a click, so storage can be read during the first render.
@@ -71,11 +94,11 @@ function LocalLudo({ opponents, onOpponents, onBack }: { opponents: Exclude<Oppo
   // Every change to the game restarts the turn timer.
   function update(next: Game) { setGame(next); setActionAt(() => Date.now()); }
 
-  function start(nextRules = rules, nextPlayers = players) {
+  function start() {
     rollTimers.current.forEach((t) => { window.clearInterval(t); window.clearTimeout(t); });
     setMoving(null); setRolling(false);
-    update(newGame(nextPlayers, nextRules));
-    const on = (Object.keys(RULES) as Rule[]).filter((r) => nextRules[r]).map((r) => RULES[r].label);
+    update(newGame(players, rules));
+    const on = (Object.keys(RULES) as Rule[]).filter((r) => rules[r]).map((r) => RULES[r].label);
     setNotice(on.length ? `New game with ${on.join(", ")}.` : "New game, no house rules.");
   }
 
@@ -182,13 +205,11 @@ function LocalLudo({ opponents, onOpponents, onBack }: { opponents: Exclude<Oppo
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  function toggleRule(rule: Rule) { const next = { ...rules, [rule]: !rules[rule] }; setRules(next); start(next); }
-  function changePlayers(value: number) { setPlayers(value); start(rules, value); }
-  function changeOpponents(value: Opponents) { onOpponents(value); start(); }
   function toggleMuted() { const next = !muted; setMuted(next); writeFlag(MUTED_KEY, next); if (!next) sound.unlock(); }
-  function backToGames() { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); onBack(); }
+  function backToGames() { onBack(); }
 
-  const ruleCount = (Object.keys(RULES) as Rule[]).filter((r) => game.rules[r]).length;
+  const rulesOn = (Object.keys(RULES) as Rule[]).filter((r) => game.rules[r]).map((r) => RULES[r].label);
+  const ruleCount = rulesOn.length;
   const waitingToRoll = human && !game.dice.length && !busy;
   const status = game.winner ? "GAME OVER" : `${name(turn).toUpperCase()} · ${rolling ? "ROLLING" : !game.dice.length ? "TO ROLL" : moving ? "MOVING" : options.length ? (taxiDriving ? "DRIVING THE TAXI" : "TO MOVE") : "NO MOVE"}`;
   const prompt = game.winner ? notice
@@ -202,8 +223,9 @@ function LocalLudo({ opponents, onOpponents, onBack }: { opponents: Exclude<Oppo
   return <main className="draft-screen ludo-screen">
     <header className="draft-header">
       <button className="back-button" onClick={backToGames}>← <span>GAMES</span></button>
-      <div><strong>LUDO</strong><small>{ruleCount ? `${ruleCount} HOUSE RULE${ruleCount > 1 ? "S" : ""}` : "TWO DICE"}</small></div>
+      <div><strong>LUDO</strong><small title={rulesOn.join(", ")}>{ruleCount ? `${ruleCount} HOUSE RULE${ruleCount > 1 ? "S" : ""}` : "TWO DICE"}</small></div>
       <div className="draft-header-right">
+        <SettingsButton onSettings={onSettings} />
         <button className="icon-button" onClick={toggleMuted} aria-label={muted ? "Turn sound on" : "Turn sound off"} aria-pressed={!muted}>{muted ? "🔇" : "🔊"}</button>
         <span className="draft-count">{game.seats.map((c) => `${title(c).toUpperCase()} ${game.tokens[c].filter((t) => t.where === "home").length}/${game.tokens[c].length}`).join(" · ")}</span>
       </div>
@@ -216,17 +238,7 @@ function LocalLudo({ opponents, onOpponents, onBack }: { opponents: Exclude<Oppo
         <div className={`draft-message ${game.winner ? "finished" : ""}`} role="status">{prompt}</div>
         {timed && <TurnClock endsAt={actionAt + TURN_SECONDS * 1000} seconds={TURN_SECONDS} paused={busy || (!!game.dice.length && !options.length)} onTimeUp={timeUp} />}
       </div>
-      <RuleChips rules={rules} onToggle={toggleRule} />
-      <div className="draft-actions">
-        <div className="draft-buttons">
-          <label className="player-select"><span className="select-label">PLAYERS</span> <select value={players} onChange={(e) => changePlayers(Number(e.target.value))}>{[2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
-          <label className="player-select"><span className="select-label">PLAY</span> <select value={opponents} onChange={(e) => changeOpponents(e.target.value as Opponents)}><option value="cpu">vs CPU</option><option value="friends">Pass and play</option><option value="online">Online</option><option value="party">Party (TV + phones)</option></select></label>
-        </div>
-        <div className="draft-buttons">
-          {opponents === "cpu" && <label className="player-select"><span className="select-label">LEVEL</span> <select value={level} onChange={(e) => setLevel(e.target.value as Level)}>{(Object.keys(LEVELS) as Level[]).map((key) => <option key={key} value={key}>{LEVELS[key].label}</option>)}</select></label>}
-          <button onClick={() => start()} className={game.winner ? "draft-stop" : ""}>NEW GAME</button>
-        </div>
-      </div>
+      {game.winner && <div className="draft-buttons"><button className="draft-stop" onClick={() => start()}>PLAY AGAIN</button></div>}
     </section>
   </main>;
 }

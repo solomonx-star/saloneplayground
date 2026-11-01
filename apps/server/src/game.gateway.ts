@@ -1,8 +1,10 @@
 import { Inject } from "@nestjs/common";
 import { ConnectedSocket, MessageBody, type OnGatewayDisconnect, type OnGatewayInit, SubscribeMessage, WebSocketGateway, WebSocketServer } from "@nestjs/websockets";
 import type { Server, Socket } from "socket.io";
+import { cleanPresence } from "@salone/games/online/admin";
 import { EVENTS, type Reply } from "@salone/games/online/protocol";
 import { GuestsService } from "./guests.service";
+import { PresenceService } from "./presence.service";
 import { RoomError, RoomsService, type GuestRef } from "./rooms.service";
 
 // What the server remembers about each connection: who the guest is and which room they have open.
@@ -28,7 +30,11 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
   @WebSocketServer() private server!: Server;
 
   // Explicit @Inject because the server runs with tsx, which does not emit the type metadata Nest would otherwise use.
-  constructor(@Inject(GuestsService) private readonly guests: GuestsService, @Inject(RoomsService) private readonly rooms: RoomsService) {}
+  constructor(
+    @Inject(GuestsService) private readonly guests: GuestsService,
+    @Inject(RoomsService) private readonly rooms: RoomsService,
+    @Inject(PresenceService) private readonly presence: PresenceService,
+  ) {}
 
   afterInit() {
     this.rooms.onChange((view) => this.server.to(view.code).emit(EVENTS.update, view));
@@ -119,7 +125,16 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect {
     if (guest) this.rooms.input(guest.guestId, code, body?.input);
   }
 
+  // What a screen is showing, for the admin dashboard. No reply; reports that do not make sense are ignored.
+  @SubscribeMessage(EVENTS.presence)
+  async reportPresence(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
+    const report = cleanPresence(body);
+    if (!report) return;
+    try { await this.presence.report(socket.id, report); } catch (error) { console.error(error); }
+  }
+
   async handleDisconnect(socket: Socket) {
+    try { await this.presence.disconnected(socket.id); } catch (error) { console.error(error); }
     const { guest, code } = this.data(socket);
     if (guest && code) await this.rooms.disconnected(guest.guestId, code, socket.id);
   }

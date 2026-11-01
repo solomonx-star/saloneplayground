@@ -8,6 +8,8 @@ import { CONFIG, type Config } from "./config";
 // - rooms: every open room, by its code, with its seats and the live match (saved after every change so a server
 //   restart can carry on). MongoDB deletes a room on its own once `expiresAt` passes.
 // - matches: a record of every finished round, kept for history and stats.
+// - sessions: one record each time a device plays a game (from start to leaving it), for the admin dashboard.
+// - visitors: every device seen, by the random id it keeps, with when it was first and last seen.
 
 export type PlayerDoc = { _id: string; name: string; tokenHash: string; createdAt: Date; lastSeenAt: Date };
 export type SeatDoc = { guestId: string | null; name: string; cpu: boolean; level: string };
@@ -29,7 +31,10 @@ export type RoomDoc = {
 };
 export type MatchDoc = { room: string; game: GameId; seats: SeatDoc[]; match: unknown; finishedAt: Date };
 
-export type Models = { players: Model<PlayerDoc>; rooms: Model<RoomDoc>; matches: Model<MatchDoc> };
+export type SessionDoc = { visitorId: string; name: string; game: string; mode: string | null; startedAt: Date; endedAt: Date; seconds: number };
+export type VisitorDoc = { _id: string; name: string; firstSeenAt: Date; lastSeenAt: Date };
+
+export type Models = { players: Model<PlayerDoc>; rooms: Model<RoomDoc>; matches: Model<MatchDoc>; sessions: Model<SessionDoc>; visitors: Model<VisitorDoc> };
 
 export const CONNECTION = Symbol("connection");
 export const MODELS = Symbol("models");
@@ -61,6 +66,18 @@ const matches = new Schema<MatchDoc>({
   finishedAt: Date,
 }, { versionKey: false, minimize: false });
 
+const sessions = new Schema<SessionDoc>({
+  visitorId: { type: String, index: true },
+  name: String,
+  game: String,
+  mode: { type: String, default: null },
+  startedAt: Date,
+  endedAt: { type: Date, index: true },
+  seconds: Number,
+}, { versionKey: false });
+
+const visitors = new Schema<VisitorDoc>({ _id: String, name: String, firstSeenAt: { type: Date, index: true }, lastSeenAt: Date }, { versionKey: false });
+
 export const databaseProviders: Provider[] = [
   {
     provide: CONNECTION,
@@ -75,6 +92,8 @@ export const databaseProviders: Provider[] = [
         players: connection.model<PlayerDoc>("Player", players, "players"),
         rooms: connection.model<RoomDoc>("Room", rooms, "rooms"),
         matches: connection.model<MatchDoc>("Match", matches, "matches"),
+        sessions: connection.model<SessionDoc>("Session", sessions, "sessions"),
+        visitors: connection.model<VisitorDoc>("Visitor", visitors, "visitors"),
       };
       await Promise.all(Object.values(models).map((model) => model.init()));
       return models;

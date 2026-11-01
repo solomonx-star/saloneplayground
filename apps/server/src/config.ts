@@ -18,6 +18,8 @@ export type Config = {
   // The web app addresses allowed to connect (from WEB_ORIGIN, comma-separated), or true to allow any: fine on this
   // computer and the local network while developing, but set it when the server is public.
   webOrigins: string[] | true;
+  // The secret that opens the admin dashboard (ADMIN_TOKEN). Empty turns the dashboard off.
+  adminToken: string;
 };
 
 export const CONFIG = Symbol("config");
@@ -34,6 +36,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     awaySeconds: Number(env.AWAY_SECONDS ?? 30),
     timeScale: 1,
     webOrigins: parseOrigins(env.WEB_ORIGIN),
+    adminToken: env.ADMIN_TOKEN?.trim() ?? "",
   };
 }
 

@@ -1,18 +1,36 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import GameSetup, { SettingsButton, SetupOption, type Choice } from "@/components/GameSetup";
 import { MUTED_KEY, readFlag, writeFlag } from "@/components/preferences";
+import { usePresence } from "@/online/presence";
 import { gameSound as sound } from "@/components/sound";
 import { createMarblesScene, type MarblesState, type Mode, type Notice } from "@/components/marbles/scene";
 import { FIELD, LEVELS, TARGETS, type Level } from "@/components/marbles/settings";
 
+const MODES: Choice<Mode>[] = [
+  { value: "cpu", label: "vs CPU", hint: "You shoot against the computer." },
+  { value: "friend", label: "2 players", hint: "Two players take turns on this device." },
+];
+
+// Marbles starts on the setup screen; once the player starts, the game screen shows only the ring.
 export default function MarblesGame({ onBack }: { onBack: () => void }) {
+  const [mode, setMode] = useState<Mode>("cpu");
+  const [level, setLevel] = useState<Level>("normal");
+  const [ready, setReady] = useState(false);
+  usePresence("marbles", mode, ready);
+  if (ready) return <MarblesRing mode={mode} level={level} onSettings={() => setReady(false)} onBack={onBack} />;
+  return <GameSetup title="Marbles" intro="Thirteen marbles in the ring. Flick your shooter to knock them out and keep them — most marbles wins." onStart={() => setReady(true)}>
+    <SetupOption label="PLAY" value={mode} choices={MODES} onChange={setMode} />
+    {mode === "cpu" && <SetupOption label="LEVEL" value={level} choices={(Object.keys(LEVELS) as Level[]).map((key) => ({ value: key, label: LEVELS[key].label }))} onChange={setLevel} />}
+  </GameSetup>;
+}
+
+function MarblesRing({ mode, level, onSettings, onBack }: { mode: Mode; level: Level; onSettings: () => void; onBack: () => void }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [notice, setNotice] = useState<Notice>({ text: "Thirteen marbles in the ring. Knock them out to keep them.", kind: "ready" });
   const [playing, setPlaying] = useState(false);
-  const [mode, setMode] = useState<Mode>("cpu");
-  const [level, setLevel] = useState<Level>("normal");
-  const [state, setState] = useState<MarblesState>({ scores: [0, 0], current: 0, over: false, mode: "cpu" });
+  const [state, setState] = useState<MarblesState>({ scores: [0, 0], current: 0, over: false, mode });
   // Marbles only renders after a click, so storage can be read during the first render.
   const [muted, setMuted] = useState(() => readFlag(MUTED_KEY));
 
@@ -52,7 +70,7 @@ export default function MarblesGame({ onBack }: { onBack: () => void }) {
 
   function start() { sound.unlock(); window.dispatchEvent(new CustomEvent("marbles-start", { detail: { mode, level } })); }
   function toggleMuted() { const next = !muted; setMuted(next); writeFlag(MUTED_KEY, next); if (!next) sound.unlock(); }
-  function backToGames() { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); onBack(); }
+  function backToGames() { onBack(); }
 
   const names = state.mode === "cpu" ? ["YOU", "CPU"] : ["P1", "P2"];
   return (
@@ -61,9 +79,8 @@ export default function MarblesGame({ onBack }: { onBack: () => void }) {
         <button className="back-button" onClick={backToGames}>← <span>GAMES</span></button>
         <div className="game-title"><span className="brand-mark">S</span><strong>MARBLES</strong><small>RING GAME</small></div>
         <div className="game-settings">
+          <SettingsButton onSettings={onSettings} />
           <button className="icon-button" onClick={toggleMuted} aria-label={muted ? "Turn sound on" : "Turn sound off"} aria-pressed={!muted}>{muted ? "🔇" : "🔊"}</button>
-          <label className="player-select"><span className="select-label">PLAY</span> <select value={mode} disabled={playing} onChange={(e) => setMode(e.target.value as Mode)}><option value="cpu">vs CPU</option><option value="friend">2 players</option></select></label>
-          {mode === "cpu" && <label className="player-select"><span className="select-label">LEVEL</span> <select value={level} disabled={playing} onChange={(e) => setLevel(e.target.value as Level)}>{(Object.keys(LEVELS) as Level[]).map((key) => <option key={key} value={key}>{LEVELS[key].label}</option>)}</select></label>}
         </div>
       </header>
       <div className="game-stage"><div className="game-frame marbles-frame">

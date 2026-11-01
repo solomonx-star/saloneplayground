@@ -12,6 +12,7 @@ import { usePlayback } from "@/components/ludo/usePlayback";
 import { OnlineEntry, OnlineNotices, RoomCode } from "@/online/OnlineEntry";
 import { PartyJoin, PartyStart } from "@/online/PartyJoin";
 import { useRoom, type OnlineMode, type OnlineRoom } from "@/online/useRoom";
+import { useLeaveRoom } from "@/components/LeaveGuard";
 import { COLOUR_HEX } from "@salone/games/ludo/board";
 import { canRoll, type LudoEvent, type LudoMatch } from "@salone/games/ludo/match";
 import { current, LEVELS, NO_RULES, plays, seatsFor, TURN_SECONDS, type Colour, type Level, type Play, type Rule } from "@salone/games/ludo/rules";
@@ -40,7 +41,7 @@ export default function LudoOnline({ onBack, onLocal, mode = "online", joinCode 
   useEffect(() => { sound.muted = muted; }, [muted]);
 
   function toggleMuted() { const next = !muted; setMuted(next); writeFlag(MUTED_KEY, next); if (!next) sound.unlock(); }
-  function backToGames() { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); onBack(); }
+  function backToGames() { onBack(); }
 
   const game = room?.match?.game;
   return <main className={`draft-screen ludo-screen${mode === "party" && room ? " party-screen" : ""}${mode === "phone" ? " phone-screen" : ""}`}>
@@ -83,6 +84,7 @@ function Players({ value, onChange }: { value: number; onChange?: (players: numb
 // The room before the game: how to join (the code, or on the party screen the QR code too), the seats with their
 // colours, and (for the host) the players, house rules, computer players and Start.
 function Lobby({ room, me, online }: { room: Room; me: string; online: Online }) {
+  const leaveRoom = useLeaveRoom(online.leave);
   const [level, setLevel] = useState<Level>("normal");
   const host = room.hostId === me;
   const colours = seatsFor(room.options.players);
@@ -108,7 +110,7 @@ function Lobby({ room, me, online }: { room: Room; me: string; online: Online })
         {host && <label className="player-select"><span className="select-label">COMPUTER</span> <select value={level} onChange={(e) => setLevel(e.target.value as Level)}>{(Object.keys(LEVELS) as Level[]).map((key) => <option key={key} value={key}>{LEVELS[key].label}</option>)}</select></label>}
       </div>
       <div className="draft-buttons">
-        <button onClick={() => void online.leave()}>{room.party && host ? "END PARTY" : "LEAVE ROOM"}</button>
+        <button onClick={() => leaveRoom({ endsParty: room.party && host })}>{room.party && host ? "END PARTY" : "LEAVE ROOM"}</button>
         {host ? <button className="draft-stop" disabled={!full} onClick={() => void online.start()}>START GAME</button> : <span className="draft-turn">WAITING FOR THE HOST TO START</span>}
       </div>
     </div>
@@ -119,6 +121,7 @@ function Lobby({ room, me, online }: { room: Room; me: string; online: Online })
 // own turn, once the screen has caught up. The party screen (no seat) only shows the game; a phone in party play
 // shows its player's controls, with the board a tap away.
 function Table({ room, me, online }: { room: Room; me: string; online: Online }) {
+  const leaveRoom = useLeaveRoom(online.leave);
   const seat = room.seats.findIndex((s) => s.guestId === me);
   const partyHost = room.party && room.hostId === me;
   const phone = room.party && seat >= 0;
@@ -223,7 +226,7 @@ function Table({ room, me, online }: { room: Room; me: string; online: Online })
       {clock}
       <div className="draft-buttons ludo-phone-actions">
         <button onClick={() => setShowBoard(!showBoard)}>{showBoard ? "HIDE THE BOARD" : "SHOW THE BOARD"}</button>
-        <button onClick={() => void online.leave()}>LEAVE GAME</button>
+        <button onClick={() => leaveRoom({ inMatch: true })}>LEAVE GAME</button>
         {rematch}
       </div>
       {showBoard && board}
@@ -238,9 +241,8 @@ function Table({ room, me, online }: { room: Room; me: string; online: Online })
       <div className={`draft-message ${game.winner ? "finished" : ""}`} role="status">{prompt.trim() || " "}</div>
       {clock}
     </div>
-    <RuleChips rules={game.rules} />
     <div className="draft-actions">
-      <div className="draft-buttons"><button onClick={() => void online.leave()}>{partyHost ? "END PARTY" : "LEAVE GAME"}</button></div>
+      <div className="draft-buttons"><button onClick={() => leaveRoom({ endsParty: partyHost, inMatch: true })}>{partyHost ? "END PARTY" : "LEAVE GAME"}</button></div>
       <div className="draft-buttons">{rematch}</div>
     </div>
   </>;

@@ -7,6 +7,7 @@ import { io, type Socket } from "socket.io-client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Match } from "@salone/games/tintanto/match";
 import { chooseMove } from "@salone/games/tintanto/rules";
+import type { LiveView, StatsView } from "@salone/games/online/admin";
 import { EVENTS, type Guest, type Reply, type RoomView } from "@salone/games/online/protocol";
 import type { LudoOptions } from "@salone/games/online/games";
 import type { LudoMatch } from "@salone/games/ludo/match";
@@ -36,7 +37,7 @@ async function startServer() {
 
 beforeAll(async () => {
   mongo = await MongoMemoryServer.create();
-  config = { port: 0, mongoUri: mongo.getUri(), dbName: "salone_test", roomHours: 1, cpuDelayMs: 30, awaySeconds: 30, timeScale: 0.01, webOrigins: ["http://allowed.example"] };
+  config = { port: 0, mongoUri: mongo.getUri(), dbName: "salone_test", roomHours: 1, cpuDelayMs: 30, awaySeconds: 30, timeScale: 0.01, webOrigins: ["http://allowed.example"], adminToken: "test-admin-secret" };
   await startServer();
 }, 180_000);
 
@@ -460,5 +461,64 @@ describe("allowed web addresses", () => {
     expect((await ask("https://elsewhere.example")).headers.get("access-control-allow-origin")).toBeNull();
     const health = await fetch(`${url}/health`, { headers: { Origin: "https://elsewhere.example" } });
     expect(health.headers.get("access-control-allow-origin")).toBeNull();
+  });
+});
+
+describe("admin dashboard", () => {
+  const admin = (path: string, token = "test-admin-secret") => fetch(`${url}/admin/${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  async function live(test: (view: LiveView) => boolean): Promise<LiveView> {
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      const view = (await (await admin("live")).json()) as LiveView;
+      if (test(view)) return view;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error("Timed out waiting for the live view");
+  }
+
+  it("turns away requests without the right admin token", async () => {
+    expect((await admin("live", "wrong")).status).toBe(401);
+    expect((await fetch(`${url}/admin/stats`)).status).toBe(401);
+  });
+
+  it("shows who is online and what they play, and records each game session with its length", async () => {
+    const screen = io(url, { transports: ["websocket"], forceNew: true, reconnection: false });
+    sockets.push(screen);
+    await new Promise<void>((r) => screen.once("connect", () => r()));
+    const visitorId = "visitor-admin-test-1";
+    screen.emit(EVENTS.presence, { visitorId, name: "Aminata", game: null, mode: null, playing: false });
+    let view = await live((v) => v.people.some((p) => p.visitorId === visitorId));
+    expect(view.people.find((p) => p.visitorId === visitorId)).toMatchObject({ name: "Aminata", game: null, playing: false });
+
+    screen.emit(EVENTS.presence, { visitorId, name: "Aminata", game: "ludo", mode: "cpu", playing: true });
+    view = await live((v) => v.people.some((p) => p.visitorId === visitorId && p.playing));
+    expect(view.people.find((p) => p.visitorId === visitorId)).toMatchObject({ game: "ludo", mode: "cpu" });
+    expect(view.playing).toBeGreaterThanOrEqual(1);
+
+    // Back to the shelf ends the session; leaving the site takes the visitor off the live list.
+    await new Promise((r) => setTimeout(r, 100));
+    screen.emit(EVENTS.presence, { visitorId, name: "Aminata", game: null, mode: null, playing: false });
+    await live((v) => v.people.some((p) => p.visitorId === visitorId && !p.playing));
+    screen.disconnect();
+    await live((v) => !v.people.some((p) => p.visitorId === visitorId));
+
+    const stats = (await (await admin("stats?days=7")).json()) as StatsView;
+    expect(stats.days).toBe(7);
+    expect(stats.daily).toHaveLength(7);
+    expect(stats.games.find((g) => g.game === "ludo")).toMatchObject({ sessions: 1, players: 1 });
+    expect(stats.recent[0]).toMatchObject({ visitorId, name: "Aminata", game: "ludo", mode: "cpu" });
+    expect(stats.topPlayers.find((p) => p.visitorId === visitorId)?.games).toEqual(["ludo"]);
+    expect(stats.totals.newPlayers).toBeGreaterThanOrEqual(1);
+  });
+
+  it("ignores reports that are not valid", async () => {
+    const screen = io(url, { transports: ["websocket"], forceNew: true, reconnection: false });
+    sockets.push(screen);
+    await new Promise<void>((r) => screen.once("connect", () => r()));
+    screen.emit(EVENTS.presence, { visitorId: "x", game: "ludo", playing: true });
+    screen.emit(EVENTS.presence, { visitorId: "visitor-admin-test-2", name: "Bad", game: "<script>", playing: true });
+    const view = await live((v) => v.people.some((p) => p.visitorId === "visitor-admin-test-2"));
+    expect(view.people.find((p) => p.visitorId === "visitor-admin-test-2")).toMatchObject({ game: null, playing: false });
+    expect(view.people.some((p) => p.visitorId === "x")).toBe(false);
   });
 });

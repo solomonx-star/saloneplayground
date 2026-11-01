@@ -6,6 +6,8 @@ import { newDraftMatch, playTurn, type DraftMatch } from "@salone/games/draft/ma
 import { countPieces, type Side, type Turn } from "@salone/games/draft/rules";
 import DraftBoard, { resultText } from "@/components/draft/DraftBoard";
 import DraftOnline from "@/components/draft/DraftOnline";
+import { usePresence } from "@/online/presence";
+import GameSetup, { SettingsButton, SetupOption, type Choice } from "@/components/GameSetup";
 import { CHAIN_HINT, useDraftPicker } from "@/components/draft/useDraftPicker";
 import { MUTED_KEY, readFlag, writeFlag } from "@/components/preferences";
 import { gameSound as sound } from "@/components/sound";
@@ -45,16 +47,29 @@ function reducer(state: State, action: Action): State {
   }
 }
 
+const MODES: Choice<Mode>[] = [
+  { value: "cpu", label: "vs CPU", hint: "You play black against the computer." },
+  { value: "online", label: "Online", hint: "Play a friend on their own device." },
+  { value: "party", label: "Party (TV + phones)", hint: "This screen shows the board; players use their phones." },
+];
+
+// Draft starts on the setup screen; once the player starts, the game screen shows only the board.
 export default function DraftGame({ onBack }: { onBack: () => void }) {
   const [mode, setMode] = useState<Mode>("cpu");
-  if (mode !== "cpu") return <DraftOnline mode={mode} onBack={onBack} onLocal={() => setMode("cpu")} />;
-  return <LocalDraft onMode={setMode} onBack={onBack} />;
+  const [level, setLevel] = useState<Level>("normal");
+  const [playing, setPlaying] = useState(false);
+  usePresence("draft", mode, playing);
+  if (!playing) return <GameSetup title="Draft" intro="Bottle-top draughts on a 10×10 board. Capture pieces by jumping them; reach the far row to crown a flying king." onStart={() => setPlaying(true)} startLabel={mode === "cpu" ? "START GAME" : "CONTINUE"}>
+    <SetupOption label="PLAY" value={mode} choices={MODES} onChange={setMode} />
+    {mode === "cpu" && <SetupOption label="LEVEL" value={level} choices={(Object.keys(LEVELS) as Level[]).map((key) => ({ value: key, label: LEVELS[key].label }))} onChange={setLevel} />}
+  </GameSetup>;
+  if (mode !== "cpu") return <DraftOnline mode={mode} onBack={onBack} onLocal={() => setPlaying(false)} />;
+  return <LocalDraft level={level} onSettings={() => setPlaying(false)} onBack={onBack} />;
 }
 
 // Draft on one device, against the computer.
-function LocalDraft({ onMode, onBack }: { onMode: (mode: Mode) => void; onBack: () => void }) {
+function LocalDraft({ level, onSettings, onBack }: { level: Level; onSettings: () => void; onBack: () => void }) {
   const [state, dispatch] = useReducer(reducer, undefined, fresh);
-  const [level, setLevel] = useState<Level>("normal");
   // Draft only renders after a click, so storage can be read during the first render.
   const [muted, setMuted] = useState(() => readFlag(MUTED_KEY));
   const { match, suggestion } = state;
@@ -95,27 +110,23 @@ function LocalDraft({ onMode, onBack }: { onMode: (mode: Mode) => void; onBack: 
   function suggest() { const turn = chooseTurn(board, HUMAN, "normal"); if (turn) dispatch({ type: "suggest", turn }); }
   // Part-way through a capture chain, undo only cancels the jumps made so far.
   function undo() { if (progress.length) picker.cancel(); else dispatch({ type: "undo" }); }
-  function backToGames() { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); onBack(); }
+  function backToGames() { onBack(); }
 
   return <main className="draft-screen">
     <header className="draft-header">
       <button className="back-button" onClick={backToGames}>← <span>GAMES</span></button>
       <div><strong>DRAFT</strong><small>SIERRA LEONE · AFRICAN CHECKERS</small></div>
       <div className="draft-header-right">
+        <SettingsButton onSettings={onSettings} />
         <button className="icon-button" onClick={toggleMuted} aria-label={muted ? "Turn sound on" : "Turn sound off"} aria-pressed={!muted}>{muted ? "🔇" : "🔊"}</button>
         <span className="draft-count">YOU {counts.black} · CPU {counts.white}</span>
       </div>
     </header>
     <section className="draft-content">
-      <div className="draft-intro"><p className="eyebrow">BOTTLE-TOP DRAUGHTS</p><h1>Plan your next move.</h1><p>Capture pieces by jumping them. Reach the far row to crown a flying king.</p></div>
       <DraftBoard match={match} picker={picker} suggestion={progress.length ? null : suggestion} waiting={side === CPU && !result}
         onTap={() => { sound.unlock(); dispatch({ type: "clear" }); }} />
       <div className={`draft-message ${result ? "finished" : ""}`} role="status">{message}</div>
       <div className="draft-actions">
-        <div className="draft-buttons">
-          <label className="player-select"><span className="select-label">PLAY</span> <select value="cpu" onChange={(e) => onMode(e.target.value as Mode)}><option value="cpu">vs CPU</option><option value="online">Online</option><option value="party">Party (TV + phones)</option></select></label>
-          <label className="player-select"><span className="select-label">LEVEL</span> <select value={level} onChange={(e) => setLevel(e.target.value as Level)}>{(Object.keys(LEVELS) as Level[]).map((key) => <option key={key} value={key}>{LEVELS[key].label}</option>)}</select></label>
-        </div>
         <span className="draft-turn">{result ? "GAME OVER" : side === HUMAN ? "YOUR MOVE" : "COMPUTER'S MOVE"}{canCapture && !progress.length ? " · CAPTURE AVAILABLE" : ""}</span>
         <div className="draft-buttons">
           {progress.length > 0

@@ -47,6 +47,8 @@ export const EVENTS = {
   // Real-time games (Touch): a person's stick and buttons, and the frames the server sends while the match runs.
   input: "game:input",
   frame: "game:frame",
+  // Every screen reports what it is showing, for the admin dashboard: no reply.
+  presence: "presence:update",
 } as const;
 
 // Room codes are four capital letters, leaving out I and O so they cannot be mistaken for 1 and 0.

@@ -23,14 +23,15 @@ const emit = (name: string, detail?: unknown) => window.dispatchEvent(new Custom
 // The rules run in TouchMatch; the scene draws its players and turns what happens into sounds, effects and messages.
 // The React screen talks to the scene through window events: it sends touch-start, touch-count, touch-level,
 // touch-new-match, touch-switch and touch-move, and listens for touch-status, touch-state and touch-match.
-export function createTouchScene(Phaser: typeof PhaserNamespace, input: { current: TouchInput }, sound: GameSound) {
+export function createTouchScene(Phaser: typeof PhaserNamespace, input: { current: TouchInput }, sound: GameSound, settings: { count: number; level: Level } = { count: 4, level: "normal" }) {
   return class TouchField extends Phaser.Scene {
-    private match = new TouchMatch({ count: 4, tuning: [LEVELS.normal, LEVELS.normal] });
+    // Your own computer teammates always play at normal; the level sets the opposing team.
+    private match = new TouchMatch({ count: settings.count, tuning: [LEVELS.normal, LEVELS[settings.level]] });
     private views = new Map<Player, Arc>();
     private tags = new Map<Player, Text>();
     private shownAttackers: Player[] = [];
     private keys!: Record<string, PhaserNamespace.Input.Keyboard.Key>;
-    private level: Level = "normal";
+    private level: Level = settings.level;
     private trailGraphics!: Graphics;
     private orderGraphics!: Graphics;
     private playerGraphics!: Graphics;

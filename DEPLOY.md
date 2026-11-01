@@ -41,6 +41,7 @@ In **Variables**:
 | `MONGODB_DB` | `salone_prod` — keeps live games apart from development (`salone_dev`). |
 | `WEB_ORIGIN` | Leave unset for now; you set it in step 4. |
 | `ROOM_HOURS`, `CPU_DELAY_MS`, `AWAY_SECONDS` | Optional. Defaults: 12 hours, 700 ms, 30 seconds. |
+| `ADMIN_TOKEN` | Optional. A long random secret that opens the admin dashboard at `https://<web domain>/admin` (players online, what they play and for how long). Leave unset to keep the dashboard off. |
 
 Do not set `PORT`: Railway sets it and the server uses it.
 
@@ -107,4 +108,5 @@ Phones no longer need to be on the same Wi-Fi: the party screen's QR code points
 | `game-server` | `MONGODB_DB` | Yes | `salone_prod` |
 | `game-server` | `WEB_ORIGIN` | Yes, once `web` is up | Comma-separated web app addresses. |
 | `game-server` | `ROOM_HOURS`, `CPU_DELAY_MS`, `AWAY_SECONDS` | No | Tuning. |
+| `game-server` | `ADMIN_TOKEN` | No | Opens the admin dashboard at `/admin`; unset keeps it off. |
 | `web` | `NEXT_PUBLIC_GAME_SERVER_URL` | Yes | Public, built into the pages. |

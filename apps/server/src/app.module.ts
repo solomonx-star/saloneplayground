@@ -1,9 +1,11 @@
 import { networkInterfaces } from "node:os";
 import { Controller, Get, Module, Req, type DynamicModule } from "@nestjs/common";
+import { AdminController } from "./admin.controller";
 import { CONFIG, type Config } from "./config";
 import { databaseProviders, DatabaseShutdown } from "./database";
 import { GameGateway } from "./game.gateway";
 import { GuestsService } from "./guests.service";
+import { PresenceService } from "./presence.service";
 import { RoomsService } from "./rooms.service";
 
 const PRIVATE = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/;
@@ -33,8 +35,8 @@ export class AppModule {
   static register(config: Config): DynamicModule {
     return {
       module: AppModule,
-      controllers: [HealthController],
-      providers: [{ provide: CONFIG, useValue: config }, ...databaseProviders, DatabaseShutdown, GuestsService, RoomsService, GameGateway],
+      controllers: [HealthController, AdminController],
+      providers: [{ provide: CONFIG, useValue: config }, ...databaseProviders, DatabaseShutdown, GuestsService, RoomsService, PresenceService, GameGateway],
     };
   }
 }
