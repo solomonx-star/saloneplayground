@@ -1,9 +1,10 @@
 import type PhaserNamespace from "phaser";
 import { nextTrapLine, projectedX, type DefenderIntent } from "@salone/games/touch/defenders";
-import { FIELD_H, FIELD_W, HOME_LINE, LINES, MID, TURN_LINE, type Point } from "@salone/games/touch/field";
+import { LINES, MID, type Point } from "@salone/games/touch/field";
 import { TouchMatch, type Player, type TouchEvent, type TouchInput } from "@salone/games/touch/match";
 import { LEVELS, TOUCH, type Level } from "@salone/games/touch/settings";
 import { burst, floatText, ripple } from "@/components/effects";
+import { drawFacing, drawField } from "./fieldArt";
 import type { GameSound } from "@/components/sound";
 
 type Arc = PhaserNamespace.GameObjects.Arc;
@@ -46,23 +47,7 @@ export function createTouchScene(Phaser: typeof PhaserNamespace, input: { curren
     private get you() { return this.match.controllers.get(YOU)!; }
 
     create() {
-      const w = FIELD_W;
-      const h = FIELD_H;
-      const g = this.add.graphics();
-      g.fillGradientStyle(0x226b4d, 0x226b4d, 0x1d6045, 0x1d6045, 1);
-      g.fillRoundedRect(12, 12, w - 24, h - 24, 20);
-      g.lineStyle(2, 0x9bc5a1, 0.75).strokeRoundedRect(28, 28, w - 56, h - 56, 12);
-      g.lineStyle(2, 0xd1e3cb, 0.48);
-      LINES.forEach((y, i) => {
-        g.lineBetween(32, y, w - 32, y);
-        this.add.text(40, y - 22, `LINE ${i + 1}`, { fontFamily: "Arial", fontSize: "10px", color: "#d9ead6", fontStyle: "bold" }).setAlpha(0.8);
-      });
-      g.lineStyle(3, 0xf0d77a, 0.85).lineBetween(32, HOME_LINE, w - 32, HOME_LINE);
-      g.lineStyle(3, 0xf0d77a, 0.85).lineBetween(32, TURN_LINE, w - 32, TURN_LINE);
-      g.lineStyle(2, 0xf6dda0, 0.8).lineBetween(MID, 46, MID, 524);
-      this.add.text(42, HOME_LINE + 9, "START · HOME", { fontFamily: "Arial", fontSize: "11px", color: "#fff4c6", fontStyle: "bold" });
-      this.add.text(42, 52, "LAST LINE · TURN BACK", { fontFamily: "Arial", fontSize: "11px", color: "#fff4c6", fontStyle: "bold" });
-      this.add.text(MID + 8, 270, "MAIN LINE", { fontFamily: "Arial", fontSize: "10px", color: "#ffe8ad", fontStyle: "bold" }).setAngle(-90).setAlpha(0.9);
+      drawField(this);
       this.trailGraphics = this.add.graphics().setDepth(2);
       this.orderGraphics = this.add.graphics().setDepth(4);
       this.playerGraphics = this.add.graphics().setDepth(6);
@@ -147,7 +132,7 @@ export function createTouchScene(Phaser: typeof PhaserNamespace, input: { curren
         const view = this.views.get(defender)!;
         view.setFillStyle(friendly ? 0x69b8d8 : 0xf2a354);
         view.setData("stroke", [3, friendly ? 0xe7f8ff : 0xffe3b1]);
-        for (const key of ["lastPos", "trail", "heading"]) view.setData(key, null);
+        for (const key of ["facing", "trail"]) view.setData(key, null);
       }
       this.syncViews();
       const { turn, totalTurns } = this.match;
@@ -243,23 +228,9 @@ export function createTouchScene(Phaser: typeof PhaserNamespace, input: { curren
       this.trailGraphics.clear();
       this.playerGraphics.clear();
       for (const [player, view] of this.views) {
-        const last = (view.getData("lastPos") as Point | null) ?? { x: player.x, y: player.y };
-        const moved = Phaser.Math.Distance.Between(last.x, last.y, player.x, player.y);
-        let heading = (view.getData("heading") as Point | null) ?? (player.role === "attacker" ? { x: 0, y: -1 } : { x: 0, y: 1 });
-        if (moved > 0.3) {
-          const blend = { x: heading.x * 0.7 + (player.x - last.x) / moved * 0.3, y: heading.y * 0.7 + (player.y - last.y) / moved * 0.3 };
-          const length = Math.hypot(blend.x, blend.y) || 1;
-          heading = { x: blend.x / length, y: blend.y / length };
-        }
-        view.setData("lastPos", { x: player.x, y: player.y });
-        view.setData("heading", heading);
-        const base = view.radius + 2; const tip = base + 7;
-        const side = { x: -heading.y * 5, y: heading.x * 5 };
-        this.playerGraphics.fillStyle(0xffffff, 0.85).fillTriangle(
-          player.x + heading.x * tip, player.y + heading.y * tip,
-          player.x + heading.x * base + side.x, player.y + heading.y * base + side.y,
-          player.x + heading.x * base - side.x, player.y + heading.y * base - side.y,
-        );
+        const facing = (view.getData("facing") as Parameters<typeof drawFacing>[1] | null) ?? {};
+        view.setData("facing", facing);
+        const moved = drawFacing(this.playerGraphics, facing, player.x, player.y, view.radius, player.role === "attacker" ? { x: 0, y: -1 } : { x: 0, y: 1 });
         const trail = (view.getData("trail") as Point[] | null) ?? [];
         if (dt > 0 && moved / dt > TOUCH.attackerSpeed * 1.15) trail.push({ x: player.x, y: player.y });
         else trail.shift();

@@ -45,6 +45,10 @@ export function useRoom<M, O = unknown>(game: GameId, joinCode?: string) {
   // When the room on show arrived, in this device's clock: the server's timer counts from there.
   const [receivedAt, setReceivedAt] = useState(0);
   const [error, setError] = useState("");
+  // Screens of real-time games (Touch) listen for the live match's frames here.
+  const frameListeners = useRef(new Set<(frame: unknown) => void>());
+  // The latest frame, for a listener that starts after it arrived (between runs no new frames come).
+  const lastFrame = useRef<{ events?: unknown[] } | null>(null);
 
   // Shows a room from the server, unless it is older than the one on show.
   const setRoom = useCallback((view: RoomView<M, O> | null) => {
@@ -68,6 +72,10 @@ export function useRoom<M, O = unknown>(game: GameId, joinCode?: string) {
       const joined: Reply<RoomView<M, O>> = await socket.emitWithAck(EVENTS.join, { code });
       if (joined.ok) setRoom(joined.value);
       else { write(roomKey(game), null); setRoom(null); }
+    });
+    socket.on(EVENTS.frame, (frame: { events?: unknown[] }) => {
+      lastFrame.current = frame;
+      for (const listener of frameListeners.current) listener(frame);
     });
     socket.on("disconnect", () => setConnection("offline"));
     socket.on("connect_error", () => setConnection("offline"));
@@ -123,11 +131,21 @@ export function useRoom<M, O = unknown>(game: GameId, joinCode?: string) {
     clearError: () => setError(""),
     async create(name: string, options?: O, party = false) { if (await rename(name)) show(await request<RoomView<M, O>>(EVENTS.create, { game, options, party })); },
     async join(name: string, code: string) { if (await rename(name)) show(await request<RoomView<M, O>>(EVENTS.join, { code })); },
-    async leave() { await request(EVENTS.leave); write(roomKey(game), null); setRoom(null); },
+    async leave() { await request(EVENTS.leave); write(roomKey(game), null); lastFrame.current = null; setRoom(null); },
     setOptions: async (options: Partial<O>) => show(await request<RoomView<M, O>>(EVENTS.options, { options })),
     addCpu: async (seat: number, level: string) => show(await request<RoomView<M, O>>(EVENTS.addCpu, { seat, level })),
     removeCpu: async (seat: number) => show(await request<RoomView<M, O>>(EVENTS.removeCpu, { seat })),
     start: async () => show(await request<RoomView<M, O>>(EVENTS.start)),
     act: async (action: unknown) => show(await request<RoomView<M, O>>(EVENTS.act, { action })),
+    takeSeat: async (seat: number) => show(await request<RoomView<M, O>>(EVENTS.seat, { seat })),
+    // Real-time games: every frame of the live match (returns a function that stops listening), and this player's
+    // stick and buttons. Input is sent without waiting for an answer: the next frame shows the result.
+    onFrame(listener: (frame: unknown) => void) {
+      frameListeners.current.add(listener);
+      // Catch up with the match as it is now; what happened before is not played again.
+      if (lastFrame.current) listener({ ...lastFrame.current, events: [] });
+      return () => { frameListeners.current.delete(listener); };
+    },
+    sendInput(input: unknown) { socketRef.current?.volatile.emit(EVENTS.input, { input }); },
   };
 }

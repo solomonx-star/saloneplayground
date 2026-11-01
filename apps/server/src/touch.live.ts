@@ -75,6 +75,7 @@ export class TouchLive {
       case "switch": {
         if (!guestId || !match.controllers.has(guestId)) return "You are not playing in this match.";
         if (!match.active) return "Wait for the run to start.";
+        if (match.controllers.get(guestId)!.team === match.attacking) return "Runners keep their player for the whole run.";
         const target = typeof action.to === "string" ? [...match.attackers, ...match.defenders].find((p) => p.id === action.to) : null;
         const switched = action.to === undefined ? match.switchNext(guestId) : match.control(guestId, target);
         if (!switched) return "Nobody free to switch to.";
