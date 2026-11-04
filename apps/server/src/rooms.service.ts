@@ -242,6 +242,13 @@ export class RoomsService implements OnApplicationShutdown {
     return { guestId, name: seat.name };
   }
 
+  // The room's game and the people seated in it, for taking a chat report.
+  chatRoom(code: string): { game: RoomView["game"]; people: GuestRef[] } {
+    const room = this.live.get(code);
+    if (!room) throw new RoomError("Join a room to chat.");
+    return { game: room.game, people: room.seats.flatMap((s) => (s.guestId ? [{ guestId: s.guestId, name: s.name }] : [])) };
+  }
+
   // The live match's latest frame in a real-time room, for a screen that has just joined.
   frame(code: string) { return this.touch.frame(code); }
 

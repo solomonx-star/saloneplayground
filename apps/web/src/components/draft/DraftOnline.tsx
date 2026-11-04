@@ -60,7 +60,7 @@ export default function DraftOnline({ onBack, onLocal, mode = "online", joinCode
           ? <Lobby room={room} me={me} online={online} />
           : <Game room={room} me={me} online={online} />}
     </section>
-    {room && <RoomChat room={room} me={me} chat={online.chat} send={online.sendChat} />}
+    {room && <RoomChat room={room} me={me} online={online} />}
   </main>;
 }
 

@@ -57,7 +57,7 @@ export default function TinTanToOnline({ onBack, onLocal, mode = "online", joinC
           ? <Lobby room={room} me={me} online={online} />
           : <Game room={room} me={me} act={online.act} leave={online.leave} />}
     </section>
-    {room && <RoomChat room={room} me={me} chat={online.chat} send={online.sendChat} />}
+    {room && <RoomChat room={room} me={me} online={online} />}
   </main>;
 }
 

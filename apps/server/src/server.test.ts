@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Match } from "@salone/games/tintanto/match";
 import { chooseMove } from "@salone/games/tintanto/rules";
 import type { LiveView, StatsView } from "@salone/games/online/admin";
-import { CHAT_BURST, type ChatMessage } from "@salone/games/online/chat";
+import { CHAT_BURST, type ChatMessage, type ChatReportView, type ChatState } from "@salone/games/online/chat";
 import { EVENTS, type Guest, type Reply, type RoomView } from "@salone/games/online/protocol";
 import type { LudoOptions } from "@salone/games/online/games";
 import type { LudoMatch } from "@salone/games/ludo/match";
@@ -316,9 +316,9 @@ describe("party rooms", () => {
 describe("room chat", () => {
   // Listens for chat on a screen: each new message, and the history sent on entering a room.
   function listen(socket: Socket) {
-    const heard = { messages: [] as ChatMessage[], history: null as ChatMessage[] | null };
+    const heard = { messages: [] as ChatMessage[], history: null as ChatMessage[] | null, blocked: null as string[] | null };
     socket.on(EVENTS.chat, (m: ChatMessage) => heard.messages.push(m));
-    socket.on(EVENTS.chatHistory, (h: ChatMessage[]) => { heard.history = h; });
+    socket.on(EVENTS.chatHistory, (h: ChatState) => { heard.history = h.messages; heard.blocked = h.blocked; });
     return heard;
   }
   async function heardText(heard: { messages: ChatMessage[] }, text: string) {
@@ -357,6 +357,65 @@ describe("room chat", () => {
     await call(host.socket, EVENTS.create, { game: "tintanto" });
     for (let i = 0; i < CHAT_BURST; i++) await call(host.socket, EVENTS.chatSend, { text: `message ${i}` });
     expect(await refused(host.socket, EVENTS.chatSend, { text: "one more" })).toMatch(/Slow down/);
+  });
+
+  it("blocks a player from chat after reports and sends the reports, with their messages, to the admins", async () => {
+    const adminGet = (path: string) => fetch(`${url}/admin/${path}`, { headers: { Authorization: "Bearer test-admin-secret" } });
+    const host = await connect("Fatu");
+    const second = await connect("Alie");
+    const rude = await connect("Rude");
+    const room = await call<RoomView>(host.socket, EVENTS.create, { game: "ludo", options: { players: 3 } });
+    await call(second.socket, EVENTS.join, { code: room.code });
+    const rudeChat = listen(rude.socket);
+    await call(rude.socket, EVENTS.join, { code: room.code });
+    const hostChat = listen(host.socket);
+    await call(rude.socket, EVENTS.chatSend, { text: "you are all useless" });
+    await heardText(hostChat, "you are all useless");
+
+    expect(await refused(host.socket, EVENTS.chatReport, { guestId: rude.guest.guestId, reason: "because" })).toMatch(/Choose why/);
+    expect(await refused(host.socket, EVENTS.chatReport, { guestId: host.guest.guestId, reason: "rude" })).toMatch(/yourself/);
+    expect(await refused(host.socket, EVENTS.chatReport, { guestId: "nobody", reason: "rude" })).toMatch(/not in this room/);
+
+    // Three people in the room: one report is not enough to block, and the same person cannot report twice.
+    expect(await call(host.socket, EVENTS.chatReport, { guestId: rude.guest.guestId, reason: "rude" })).toEqual({ blocked: false });
+    expect(await refused(host.socket, EVENTS.chatReport, { guestId: rude.guest.guestId, reason: "rude" })).toMatch(/already reported/);
+    await call(rude.socket, EVENTS.chatSend, { text: "still here" });
+
+    // A second person's report blocks them; everyone hears it, and they cannot send any more.
+    expect(await call(second.socket, EVENTS.chatReport, { guestId: rude.guest.guestId, reason: "personal" })).toEqual({ blocked: true });
+    const notice = await heardText(rudeChat, "Rude can no longer chat in this room after being reported.");
+    expect(notice.system).toBe(true);
+    expect(await refused(rude.socket, EVENTS.chatSend, { text: "hello?" })).toMatch(/no longer chat/);
+
+    // A screen entering the room learns who is blocked.
+    const again = await connect("Fatu", host.guest);
+    const againChat = listen(again.socket);
+    await call(again.socket, EVENTS.join, { code: room.code });
+    expect(againChat.blocked).toEqual([rude.guest.guestId]);
+    expect(againChat.history?.at(-1)?.system).toBe(true);
+
+    const reports = await (await adminGet("reports")).json() as ChatReportView[];
+    const mine = reports.filter((r) => r.room === room.code);
+    expect(mine).toHaveLength(2);
+    expect(mine[0]).toMatchObject({ reason: "personal", blocked: true, reported: { name: "Rude" }, reporter: { name: "Alie" } });
+    expect(mine[0].messages.map((m) => m.text)).toEqual(["you are all useless", "still here"]);
+    expect(mine[1].messages.map((m) => m.text)).toEqual(["you are all useless"]);
+
+    const dismissed = await fetch(`${url}/admin/reports/${mine[1].id}/dismiss`, { method: "POST", headers: { Authorization: "Bearer test-admin-secret" } });
+    expect(dismissed.status).toBe(200);
+    const after = (await (await adminGet("reports")).json() as ChatReportView[]).filter((r) => r.room === room.code);
+    expect(after.map((r) => r.id)).toEqual([mine[0].id]);
+    expect((await fetch(`${url}/admin/reports/${mine[1].id}/dismiss`, { method: "POST", headers: { Authorization: "Bearer test-admin-secret" } })).status).toBe(404);
+    expect((await fetch(`${url}/admin/reports`)).status).toBe(401);
+  });
+
+  it("blocks after one report when only two people are in the room", async () => {
+    const host = await connect("Binta");
+    const other = await connect("Pest");
+    const room = await call<RoomView>(host.socket, EVENTS.create, { game: "tintanto" });
+    await call(other.socket, EVENTS.join, { code: room.code });
+    expect(await call(host.socket, EVENTS.chatReport, { guestId: other.guest.guestId, reason: "spam" })).toEqual({ blocked: true });
+    expect(await refused(other.socket, EVENTS.chatSend, { text: "hi" })).toMatch(/no longer chat/);
   });
 
   it("shows chat on the party screen, which cannot send, and forgets it when the party ends", async () => {

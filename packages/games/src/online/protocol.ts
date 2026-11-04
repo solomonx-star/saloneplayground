@@ -54,11 +54,16 @@ export const EVENTS = {
   chatSend: "chat:send",
   chat: "chat:message",
   chatHistory: "chat:history",
+  // A seated player reports another; everyone in the room gets the new list of blocked players when it changes.
+  chatReport: "chat:report",
+  chatBlocked: "chat:blocked",
   // The admin dashboard: it signs in with the admin token, then gets the live view whenever it changes, and a
   // signal when a game session ends (its statistics are out of date).
   adminWatch: "admin:watch",
   adminLive: "admin:live",
   adminSessions: "admin:sessions",
+  // A chat report came in or was dismissed: the dashboard reads the reports again.
+  adminReports: "admin:reports",
 } as const;
 
 // Room codes are four capital letters, leaving out I and O so they cannot be mistaken for 1 and 0.

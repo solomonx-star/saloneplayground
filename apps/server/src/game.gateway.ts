@@ -56,6 +56,7 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect, OnModule
       this.pushLive();
     });
     this.presence.onChange(() => this.pushLive());
+    this.chat.onReports(() => { if (this.adminsWatching()) this.server.to(ADMINS).emit(EVENTS.adminReports); });
     this.presence.onSession(() => { if (this.adminsWatching()) this.server.to(ADMINS).emit(EVENTS.adminSessions); });
     // Frames are sent many times a second: a screen that falls behind skips to the next rather than queueing them.
     this.rooms.onFrame((code, frame) => this.server.to(code).volatile.emit(EVENTS.frame, frame));
@@ -156,6 +157,21 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect, OnModule
     });
   }
 
+  // A seated player reports another. Once enough people have, the room hears that the player is blocked from chat.
+  @SubscribeMessage(EVENTS.chatReport)
+  reportChat(@ConnectedSocket() socket: Socket, @MessageBody() body: Body) {
+    return reply(async () => {
+      const { code } = this.data(socket);
+      const reporter = this.rooms.chatSender(this.guest(socket).guestId, code);
+      const outcome = await this.chat.report(code!, reporter, body?.guestId, body?.reason, this.rooms.chatRoom(code!));
+      if (outcome.notice) {
+        this.server.to(code!).emit(EVENTS.chatBlocked, this.chat.state(code!).blocked);
+        this.server.to(code!).emit(EVENTS.chat, outcome.notice);
+      }
+      return { blocked: outcome.blockedNow };
+    });
+  }
+
   // What a screen is showing, for the admin dashboard. No reply; reports that do not make sense are ignored.
   @SubscribeMessage(EVENTS.presence)
   async reportPresence(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
@@ -206,7 +222,7 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect, OnModule
   private async enter(socket: Socket, code: string) {
     await socket.join(code);
     this.data(socket).code = code;
-    socket.emit(EVENTS.chatHistory, this.chat.history(code));
+    socket.emit(EVENTS.chatHistory, this.chat.state(code));
   }
 
   // Moving to another room: the old room sees this connection go (the guest keeps their seat there).

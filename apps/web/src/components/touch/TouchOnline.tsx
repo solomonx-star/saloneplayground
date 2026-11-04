@@ -62,7 +62,7 @@ export default function TouchOnline({ onBack, onLocal, mode = "online", joinCode
             joinCode={joinCode} connection={online.connection} onCreate={(name) => void online.create(name)} onJoin={(name, code) => void online.join(name, code)} onLocal={onLocal} />
         : <Lobby room={room} me={me} online={online} />}
     </section>
-    {room && <RoomChat room={room} me={me} chat={online.chat} send={online.sendChat} placement="top" />}
+    {room && <RoomChat room={room} me={me} online={online} placement="top" />}
   </main>;
 }
 
@@ -210,7 +210,7 @@ function Match({ room, me, mode, online, muted, onMute, onBack }: { room: Room; 
       <button className="back-button" onClick={() => leaveRoom({ endsParty: partyHost, inMatch: true })}>{partyHost ? "END PARTY" : "LEAVE"}</button>
     </div>
   </header>;
-  const chatPanel = <RoomChat room={room} me={me} chat={online.chat} send={online.sendChat} placement="top" />;
+  const chatPanel = <RoomChat room={room} me={me} online={online} placement="top" />;
   const errors = <OnlineNotices connection={online.connection} error={online.error} onDismiss={online.clearError} />;
 
   if (mode === "phone") {

@@ -75,7 +75,7 @@ export default function LudoOnline({ onBack, onLocal, mode = "online", joinCode 
           ? <Lobby room={room} me={me} online={online} />
           : <Table key={room.code} room={room} me={me} online={online} />}
     </section>
-    {room && <RoomChat room={room} me={me} chat={online.chat} send={online.sendChat} />}
+    {room && <RoomChat room={room} me={me} online={online} />}
   </main>;
 }
 

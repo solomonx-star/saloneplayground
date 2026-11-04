@@ -1,6 +1,10 @@
 // Room chat for online and party play: short typed messages and one-tap phrases between the people in a room.
 // Players are guests (often children), so the server tidies and filters every message before anyone sees it, and
-// keeps only the last few in memory while the room is open: nothing is saved.
+// keeps only the last few in memory while the room is open. Chat is not saved, except that a report keeps the
+// reported player's recent messages for the admins (for REPORT_DAYS).
+//
+// Anyone can mute another player on their own screen. A report goes to the admin dashboard, and once enough
+// different people in the room have reported the same player (reportsToBlock) that player cannot chat there again.
 
 export const MAX_CHAT = 140;
 // How many recent messages the server keeps per room, for a screen that reloads or joins late.
@@ -13,7 +17,41 @@ export const CHAT_WINDOW_MS = 10_000;
 export const QUICK_PHRASES = ["Good luck!", "Good move!", "Nice one!", "Your turn!", "Hurry up!", "Oops!", "Well played!", "Rematch?"] as const;
 export const QUICK_EMOJI = ["👍", "😂", "👏", "🔥", "😮", "🎉"] as const;
 
-export type ChatMessage = { id: number; guestId: string; name: string; text: string; at: number };
+// A message from a player, or from the room itself (`system`, with no guestId), such as a player being blocked.
+export type ChatMessage = { id: number; guestId: string; name: string; text: string; at: number; system?: boolean };
+// What a screen gets on entering a room: the recent messages, and the players blocked from chatting there.
+export type ChatState = { messages: ChatMessage[]; blocked: string[] };
+
+export const REPORT_REASONS = {
+  rude: "Rude or mean messages",
+  personal: "Asking for personal details",
+  spam: "Spam or flooding the chat",
+  other: "Something else",
+} as const;
+export type ReportReason = keyof typeof REPORT_REASONS;
+export const isReportReason = (value: unknown): value is ReportReason => typeof value === "string" && Object.hasOwn(REPORT_REASONS, value);
+// Reports (with the messages they keep) are deleted after this many days.
+export const REPORT_DAYS = 30;
+// How many of the reported player's recent messages a report keeps.
+export const REPORT_MESSAGES = 10;
+
+// How many different people must report a player before they are blocked from the room's chat: 2, or 1 when the
+// room has only two people (the reporter is the only one who could).
+export function reportsToBlock(people: number) { return people <= 2 ? 1 : 2; }
+
+// A report as the admin dashboard shows it.
+export type ChatReportView = {
+  id: string;
+  room: string;
+  game: string;
+  reported: { guestId: string; name: string };
+  reporter: { guestId: string; name: string };
+  reason: ReportReason;
+  messages: { text: string; at: string }[];
+  at: string;
+  // Whether the reports in that room blocked the player from chatting.
+  blocked: boolean;
+};
 
 // Tidies typed text: no control characters, single-spaced, trimmed, at most MAX_CHAT characters. Null if nothing is left.
 export function cleanChat(text: unknown): string | null {

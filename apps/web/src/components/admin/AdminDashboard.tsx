@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { io } from "socket.io-client";
 import type { DayStat, LiveView, StatsView } from "@salone/games/online/admin";
+import { REPORT_DAYS, REPORT_REASONS, type ChatReportView } from "@salone/games/online/chat";
 import { EVENTS, type Reply } from "@salone/games/online/protocol";
 import { GAMES } from "@/components/games";
 import { serverUrl } from "@/online/useRoom";
@@ -86,6 +87,9 @@ function Dashboard({ token, onSignOut }: { token: string; onSignOut: (error?: st
   // Goes up each time the server says a game session ended: the statistics are read again.
   const [statsVersion, setStatsVersion] = useState(0);
   const [error, setError] = useState("");
+  const [reports, setReports] = useState<ChatReportView[] | null>(null);
+  // Goes up each time the server says a chat report came in or was dismissed: the reports are read again.
+  const [reportsVersion, setReportsVersion] = useState(0);
 
   // The live view, pushed by the game server.
   useEffect(() => {
@@ -98,7 +102,9 @@ function Dashboard({ token, onSignOut }: { token: string; onSignOut: (error?: st
       show(answer.value);
       // Sessions may have ended while the connection was down.
       setStatsVersion((v) => v + 1);
+      setReportsVersion((v) => v + 1);
     });
+    socket.on(EVENTS.adminReports, () => setReportsVersion((v) => v + 1));
     socket.on(EVENTS.adminLive, show);
     socket.on(EVENTS.adminSessions, () => setStatsVersion((v) => v + 1));
     socket.on("disconnect", () => setConnected(false));
@@ -124,6 +130,22 @@ function Dashboard({ token, onSignOut }: { token: string; onSignOut: (error?: st
     return () => { cancelled = true; window.clearTimeout(soon); window.clearInterval(timer); };
   }, [token, onSignOut, days, statsVersion]);
 
+  // Chat reports waiting for an admin: on opening and whenever one comes in or is dismissed.
+  useEffect(() => {
+    let cancelled = false;
+    getJson<ChatReportView[]>("reports", token).then(
+      (value) => { if (!cancelled) setReports(value); },
+      (e) => { if (!cancelled && e instanceof AuthError) onSignOut(e.message); },
+    );
+    return () => { cancelled = true; };
+  }, [token, onSignOut, reportsVersion]);
+
+  async function dismiss(id: string) {
+    setReports((list) => list?.filter((r) => r.id !== id) ?? null);
+    const response = await fetch(`${serverUrl()}/admin/reports/${id}/dismiss`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => null);
+    if (!response?.ok) { setError("Could not dismiss that report. Try again."); setReportsVersion((v) => v + 1); }
+  }
+
   const elapsed = liveAt ? Math.max(0, (now - liveAt) / 1000) : 0;
   return <main className="admin-screen">
     <header className="admin-header">
@@ -136,6 +158,7 @@ function Dashboard({ token, onSignOut }: { token: string; onSignOut: (error?: st
     <div className="admin-content">
       {error && <p className="admin-error admin-banner" role="alert">{error}</p>}
       {!connected && live && <p className="admin-error admin-banner" role="alert">Lost the live connection to the game server. Reconnecting… (the figures below may be out of date)</p>}
+      <ReportsSection reports={reports} onDismiss={(id) => void dismiss(id)} />
       <LiveSection live={live} elapsed={elapsed} />
       <section className="admin-section" aria-labelledby="stats-title">
         <div className="admin-section-head">
@@ -148,6 +171,30 @@ function Dashboard({ token, onSignOut }: { token: string; onSignOut: (error?: st
       </section>
     </div>
   </main>;
+}
+
+// Chat reports from players, newest first, each with the reported player's recent messages. Dismissing one takes it
+// off the list; every report is deleted on its own after REPORT_DAYS.
+function ReportsSection({ reports, onDismiss }: { reports: ChatReportView[] | null; onDismiss: (id: string) => void }) {
+  if (!reports) return null;
+  return <section className="admin-section" aria-labelledby="reports-title">
+    <div className="admin-section-head"><h2 id="reports-title">Chat reports{reports.length > 0 && <span className="admin-count">{reports.length}</span>}</h2></div>
+    {reports.length === 0
+      ? <p className="admin-muted">No chat reports waiting. Players can report someone from the chat&apos;s Players view; reports are kept for {REPORT_DAYS} days.</p>
+      : <div className="admin-reports">{reports.map((r) => <article key={r.id} className="admin-card admin-report">
+        <header>
+          <div>
+            <strong>{who(r.reported.name, r.reported.guestId)}</strong>
+            {r.blocked && <span className="admin-badge">BLOCKED FROM CHAT</span>}
+            <small className="admin-muted">{REPORT_REASONS[r.reason]} · reported by {who(r.reporter.name, r.reporter.guestId)} · {gameName(r.game === "tintanto" ? "tin-tan-to" : r.game)} · room <span className="mono">{r.room}</span> · {when(r.at)}</small>
+          </div>
+          <button className="admin-ghost" onClick={() => onDismiss(r.id)}>DISMISS</button>
+        </header>
+        {r.messages.length === 0
+          ? <p className="admin-muted">They had not sent any messages in that room before the report.</p>
+          : <ol className="admin-report-messages">{r.messages.map((m, i) => <li key={i}><time className="admin-muted">{new Date(m.at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</time> {m.text}</li>)}</ol>}
+      </article>)}</div>}
+  </section>;
 }
 
 // `elapsed`: seconds since this view arrived, added to its timers so they keep counting between pushes.

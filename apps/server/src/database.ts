@@ -1,5 +1,6 @@
 import { Inject, Injectable, type OnApplicationShutdown, type Provider } from "@nestjs/common";
 import mongoose, { Schema, type Connection, type Model } from "mongoose";
+import { REPORT_DAYS, type ReportReason } from "@salone/games/online/chat";
 import type { GameId, RoomStatus } from "@salone/games/online/protocol";
 import { CONFIG, type Config } from "./config";
 
@@ -10,6 +11,8 @@ import { CONFIG, type Config } from "./config";
 // - matches: a record of every finished round, kept for history and stats.
 // - sessions: one record each time a device plays a game (from start to leaving it), for the admin dashboard.
 // - visitors: every device seen, by the random id it keeps, with when it was first and last seen.
+// - reports: chat reports for the admins, each with the reported player's recent messages. MongoDB deletes them on
+//   its own REPORT_DAYS after they were made. This is the only place chat is ever saved.
 
 export type PlayerDoc = { _id: string; name: string; tokenHash: string; createdAt: Date; lastSeenAt: Date };
 export type SeatDoc = { guestId: string | null; name: string; cpu: boolean; level: string };
@@ -34,7 +37,22 @@ export type MatchDoc = { room: string; game: GameId; seats: SeatDoc[]; match: un
 export type SessionDoc = { visitorId: string; name: string; game: string; mode: string | null; startedAt: Date; endedAt: Date; seconds: number };
 export type VisitorDoc = { _id: string; name: string; firstSeenAt: Date; lastSeenAt: Date };
 
-export type Models = { players: Model<PlayerDoc>; rooms: Model<RoomDoc>; matches: Model<MatchDoc>; sessions: Model<SessionDoc>; visitors: Model<VisitorDoc> };
+export type ReportDoc = {
+  room: string;
+  game: GameId;
+  reportedId: string;
+  reportedName: string;
+  reporterId: string;
+  reporterName: string;
+  reason: ReportReason;
+  messages: { text: string; at: Date }[];
+  blocked: boolean;
+  // "dismissed" once an admin has dealt with it.
+  status: "open" | "dismissed";
+  at: Date;
+};
+
+export type Models = { players: Model<PlayerDoc>; rooms: Model<RoomDoc>; matches: Model<MatchDoc>; sessions: Model<SessionDoc>; visitors: Model<VisitorDoc>; reports: Model<ReportDoc> };
 
 export const CONNECTION = Symbol("connection");
 export const MODELS = Symbol("models");
@@ -78,6 +96,20 @@ const sessions = new Schema<SessionDoc>({
 
 const visitors = new Schema<VisitorDoc>({ _id: String, name: String, firstSeenAt: { type: Date, index: true }, lastSeenAt: Date }, { versionKey: false });
 
+const reports = new Schema<ReportDoc>({
+  room: String,
+  game: String,
+  reportedId: String,
+  reportedName: String,
+  reporterId: String,
+  reporterName: String,
+  reason: String,
+  messages: [{ _id: false, text: String, at: Date }],
+  blocked: Boolean,
+  status: { type: String, default: "open", index: true },
+  at: { type: Date, index: { expireAfterSeconds: REPORT_DAYS * 24 * 3600 } },
+}, { versionKey: false });
+
 export const databaseProviders: Provider[] = [
   {
     provide: CONNECTION,
@@ -94,6 +126,7 @@ export const databaseProviders: Provider[] = [
         matches: connection.model<MatchDoc>("Match", matches, "matches"),
         sessions: connection.model<SessionDoc>("Session", sessions, "sessions"),
         visitors: connection.model<VisitorDoc>("Visitor", visitors, "visitors"),
+        reports: connection.model<ReportDoc>("Report", reports, "reports"),
       };
       await Promise.all(Object.values(models).map((model) => model.init()));
       return models;
