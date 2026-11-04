@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
+import { CHAT_HISTORY, type ChatMessage } from "@salone/games/online/chat";
 import { EVENTS, type GameId, type Guest, type Reply, type RoomView } from "@salone/games/online/protocol";
 
 // The connection to the game server for party and online play, shared by every online game screen. It keeps the
@@ -26,6 +27,10 @@ function write(key: string, value: unknown) {
   try { if (value === null) window.localStorage.removeItem(key); else window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* Storage blocked: works for this visit only. */ }
 }
 
+// A chat message as this screen holds it: when it arrived in this device's clock, or 0 for one that was already in
+// the room's history (those are not announced as new).
+export type ChatEntry = ChatMessage & { receivedAt: number };
+
 export type Connection = "connecting" | "online" | "offline";
 // How a game screen plays with other people's devices:
 // - online: each player on their own device; create a room and share its code, or join one with a code.
@@ -49,6 +54,8 @@ export function useRoom<M, O = unknown>(game: GameId, joinCode?: string) {
   const frameListeners = useRef(new Set<(frame: unknown) => void>());
   // The latest frame, for a listener that starts after it arrived (between runs no new frames come).
   const lastFrame = useRef<{ events?: unknown[] } | null>(null);
+  // The room's recent chat, oldest first.
+  const [chat, setChat] = useState<ChatEntry[]>([]);
 
   // Shows a room from the server, unless it is older than the one on show.
   const setRoom = useCallback((view: RoomView<M, O> | null) => {
@@ -77,6 +84,12 @@ export function useRoom<M, O = unknown>(game: GameId, joinCode?: string) {
       lastFrame.current = frame;
       for (const listener of frameListeners.current) listener(frame);
     });
+    // Entering a room brings its recent chat; then each new message arrives on its own.
+    socket.on(EVENTS.chatHistory, (messages: ChatMessage[]) => setChat(messages.map((m) => ({ ...m, receivedAt: 0 }))));
+    socket.on(EVENTS.chat, (message: ChatMessage) => {
+      const entry = { ...message, receivedAt: Date.now() };
+      setChat((list) => (list.some((m) => m.id === message.id) ? list : [...list, entry].slice(-CHAT_HISTORY)));
+    });
     socket.on("disconnect", () => setConnection("offline"));
     socket.on("connect_error", () => setConnection("offline"));
     socket.on(EVENTS.update, (view: RoomView<M, O>) => {
@@ -85,6 +98,7 @@ export function useRoom<M, O = unknown>(game: GameId, joinCode?: string) {
       if (view.status === "closed") {
         write(roomKey(game), null);
         setRoomState(null);
+        setChat([]);
         setError("This room has closed: the party screen left.");
         return;
       }
@@ -131,7 +145,20 @@ export function useRoom<M, O = unknown>(game: GameId, joinCode?: string) {
     clearError: () => setError(""),
     async create(name: string, options?: O, party = false) { if (await rename(name)) show(await request<RoomView<M, O>>(EVENTS.create, { game, options, party })); },
     async join(name: string, code: string) { if (await rename(name)) show(await request<RoomView<M, O>>(EVENTS.join, { code })); },
-    async leave() { await request(EVENTS.leave); write(roomKey(game), null); lastFrame.current = null; setRoom(null); },
+    async leave() { await request(EVENTS.leave); write(roomKey(game), null); lastFrame.current = null; setChat([]); setRoom(null); },
+    chat,
+    // Sends a chat message. Answers with the server's reason when it is refused (for example sending too fast), so
+    // the chat panel can show it instead of the screen's error line.
+    async sendChat(text: string): Promise<string | null> {
+      const socket = socketRef.current;
+      if (!socket?.connected) return "Not connected to the game server.";
+      try {
+        const answer: Reply<ChatMessage> = await socket.timeout(8000).emitWithAck(EVENTS.chatSend, { text });
+        return answer.ok ? null : answer.error;
+      } catch {
+        return "The game server did not answer. Try again.";
+      }
+    },
     setOptions: async (options: Partial<O>) => show(await request<RoomView<M, O>>(EVENTS.options, { options })),
     addCpu: async (seat: number, level: string) => show(await request<RoomView<M, O>>(EVENTS.addCpu, { seat, level })),
     removeCpu: async (seat: number) => show(await request<RoomView<M, O>>(EVENTS.removeCpu, { seat })),

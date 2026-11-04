@@ -5,6 +5,7 @@ import { cleanPresence } from "@salone/games/online/admin";
 import { EVENTS, type Reply } from "@salone/games/online/protocol";
 import { ADMIN_OFF, ADMIN_WRONG } from "./admin.controller";
 import { AdminService } from "./admin.service";
+import { ChatService } from "./chat.service";
 import { GuestsService } from "./guests.service";
 import { PresenceService } from "./presence.service";
 import { RoomError, RoomsService, type GuestRef } from "./rooms.service";
@@ -41,6 +42,7 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect, OnModule
     @Inject(RoomsService) private readonly rooms: RoomsService,
     @Inject(PresenceService) private readonly presence: PresenceService,
     @Inject(AdminService) private readonly admin: AdminService,
+    @Inject(ChatService) private readonly chat: ChatService,
   ) {}
 
   private adminPush: NodeJS.Timeout | null = null;
@@ -48,7 +50,11 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect, OnModule
   onModuleDestroy() { if (this.adminPush) clearTimeout(this.adminPush); }
 
   afterInit() {
-    this.rooms.onChange((view) => { this.server.to(view.code).emit(EVENTS.update, view); this.pushLive(); });
+    this.rooms.onChange((view) => {
+      this.server.to(view.code).emit(EVENTS.update, view);
+      if (view.status === "closed") this.chat.clear(view.code);
+      this.pushLive();
+    });
     this.presence.onChange(() => this.pushLive());
     this.presence.onSession(() => { if (this.adminsWatching()) this.server.to(ADMINS).emit(EVENTS.adminSessions); });
     // Frames are sent many times a second: a screen that falls behind skips to the next rather than queueing them.
@@ -138,6 +144,18 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect, OnModule
     if (guest) this.rooms.input(guest.guestId, code, body?.input);
   }
 
+  // A chat message from a seated player: filtered, then sent to everyone in the room (the sender included).
+  @SubscribeMessage(EVENTS.chatSend)
+  sendChat(@ConnectedSocket() socket: Socket, @MessageBody() body: Body) {
+    return reply(async () => {
+      const { code } = this.data(socket);
+      const sender = this.rooms.chatSender(this.guest(socket).guestId, code);
+      const message = this.chat.post(code!, sender, body?.text);
+      this.server.to(code!).emit(EVENTS.chat, message);
+      return message;
+    });
+  }
+
   // What a screen is showing, for the admin dashboard. No reply; reports that do not make sense are ignored.
   @SubscribeMessage(EVENTS.presence)
   async reportPresence(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
@@ -188,6 +206,7 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect, OnModule
   private async enter(socket: Socket, code: string) {
     await socket.join(code);
     this.data(socket).code = code;
+    socket.emit(EVENTS.chatHistory, this.chat.history(code));
   }
 
   // Moving to another room: the old room sees this connection go (the guest keeps their seat there).

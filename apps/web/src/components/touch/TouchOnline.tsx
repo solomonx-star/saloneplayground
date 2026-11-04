@@ -10,6 +10,7 @@ import Joystick from "@/components/Joystick";
 import { MUTED_KEY, readFlag, writeFlag } from "@/components/preferences";
 import { gameSound as sound } from "@/components/sound";
 import { OnlineEntry, OnlineNotices, RoomCode } from "@/online/OnlineEntry";
+import { RoomChat } from "@/online/RoomChat";
 import { PartyJoin, PartyStart } from "@/online/PartyJoin";
 import { useRoom, type OnlineMode, type OnlineRoom } from "@/online/useRoom";
 import { useLeaveRoom } from "@/components/LeaveGuard";
@@ -61,6 +62,7 @@ export default function TouchOnline({ onBack, onLocal, mode = "online", joinCode
             joinCode={joinCode} connection={online.connection} onCreate={(name) => void online.create(name)} onJoin={(name, code) => void online.join(name, code)} onLocal={onLocal} />
         : <Lobby room={room} me={me} online={online} />}
     </section>
+    {room && <RoomChat room={room} me={me} chat={online.chat} send={online.sendChat} placement="top" />}
   </main>;
 }
 
@@ -208,6 +210,7 @@ function Match({ room, me, mode, online, muted, onMute, onBack }: { room: Room; 
       <button className="back-button" onClick={() => leaveRoom({ endsParty: partyHost, inMatch: true })}>{partyHost ? "END PARTY" : "LEAVE"}</button>
     </div>
   </header>;
+  const chatPanel = <RoomChat room={room} me={me} chat={online.chat} send={online.sendChat} placement="top" />;
   const errors = <OnlineNotices connection={online.connection} error={online.error} onDismiss={online.clearError} />;
 
   if (mode === "phone") {
@@ -225,6 +228,7 @@ function Match({ room, me, mode, online, muted, onMute, onBack }: { room: Room; 
         {overlay}
       </section>
       <div className="game-bottom touch-bottom touch-centered touch-phone-controls">{controls}</div>
+      {chatPanel}
     </main>;
   }
 
@@ -244,6 +248,7 @@ function Match({ room, me, mode, online, muted, onMute, onBack }: { room: Room; 
         <span className="game-help touch-keys">WASD / arrows: move · Shift: sprint · Space or tap a defender: switch (when defending)</span>
         <span className="game-help touch-rules">Line crossed +{TOUCH.linePoints} · home +{TOUCH.homePoints} · a touch swaps sides</span>
       </div>}
+    {chatPanel}
   </main>;
 }
 

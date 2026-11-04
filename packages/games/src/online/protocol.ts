@@ -49,6 +49,11 @@ export const EVENTS = {
   frame: "game:frame",
   // Every screen reports what it is showing, for the admin dashboard: no reply.
   presence: "presence:update",
+  // Room chat (see chat.ts): a seated player sends a message; everyone in the room gets each message, and a screen
+  // entering a room gets the recent ones.
+  chatSend: "chat:send",
+  chat: "chat:message",
+  chatHistory: "chat:history",
   // The admin dashboard: it signs in with the admin token, then gets the live view whenever it changes, and a
   // signal when a game session ends (its statistics are out of date).
   adminWatch: "admin:watch",

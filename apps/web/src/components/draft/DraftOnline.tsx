@@ -10,6 +10,7 @@ import { CHAIN_HINT, useDraftPicker } from "@/components/draft/useDraftPicker";
 import { MUTED_KEY, readFlag, writeFlag } from "@/components/preferences";
 import { gameSound as sound } from "@/components/sound";
 import { OnlineEntry, OnlineNotices, RoomCode } from "@/online/OnlineEntry";
+import { RoomChat } from "@/online/RoomChat";
 import { PartyJoin, PartyStart } from "@/online/PartyJoin";
 import { useRoom, type OnlineMode, type OnlineRoom } from "@/online/useRoom";
 import { useLeaveRoom } from "@/components/LeaveGuard";
@@ -59,6 +60,7 @@ export default function DraftOnline({ onBack, onLocal, mode = "online", joinCode
           ? <Lobby room={room} me={me} online={online} />
           : <Game room={room} me={me} online={online} />}
     </section>
+    {room && <RoomChat room={room} me={me} chat={online.chat} send={online.sendChat} />}
   </main>;
 }
 

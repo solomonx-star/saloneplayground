@@ -10,6 +10,7 @@ import TurnClock from "@/components/ludo/TurnClock";
 import { useLudoControls } from "@/components/ludo/useLudoControls";
 import { usePlayback } from "@/components/ludo/usePlayback";
 import { OnlineEntry, OnlineNotices, RoomCode } from "@/online/OnlineEntry";
+import { RoomChat } from "@/online/RoomChat";
 import { PartyJoin, PartyStart } from "@/online/PartyJoin";
 import { useRoom, type OnlineMode, type OnlineRoom } from "@/online/useRoom";
 import { useLeaveRoom } from "@/components/LeaveGuard";
@@ -74,6 +75,7 @@ export default function LudoOnline({ onBack, onLocal, mode = "online", joinCode 
           ? <Lobby room={room} me={me} online={online} />
           : <Table key={room.code} room={room} me={me} online={online} />}
     </section>
+    {room && <RoomChat room={room} me={me} chat={online.chat} send={online.sendChat} />}
   </main>;
 }
 

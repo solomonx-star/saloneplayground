@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Match } from "@salone/games/tintanto/match";
 import { chooseMove } from "@salone/games/tintanto/rules";
 import type { LiveView, StatsView } from "@salone/games/online/admin";
+import { CHAT_BURST, type ChatMessage } from "@salone/games/online/chat";
 import { EVENTS, type Guest, type Reply, type RoomView } from "@salone/games/online/protocol";
 import type { LudoOptions } from "@salone/games/online/games";
 import type { LudoMatch } from "@salone/games/ludo/match";
@@ -309,6 +310,69 @@ describe("party rooms", () => {
     const answer = await (await fetch(`${url}/network`)).json() as { addresses: string[] };
     expect(Array.isArray(answer.addresses)).toBe(true);
     for (const address of answer.addresses) expect(address).toMatch(/^(10|172|192)\./);
+  });
+});
+
+describe("room chat", () => {
+  // Listens for chat on a screen: each new message, and the history sent on entering a room.
+  function listen(socket: Socket) {
+    const heard = { messages: [] as ChatMessage[], history: null as ChatMessage[] | null };
+    socket.on(EVENTS.chat, (m: ChatMessage) => heard.messages.push(m));
+    socket.on(EVENTS.chatHistory, (h: ChatMessage[]) => { heard.history = h; });
+    return heard;
+  }
+  async function heardText(heard: { messages: ChatMessage[] }, text: string) {
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      const found = heard.messages.find((m) => m.text === text);
+      if (found) return found;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error(`Timed out waiting for chat "${text}"`);
+  }
+
+  it("sends seated players' messages to everyone in the room, filtered, with recent history for late arrivals", async () => {
+    const host = await connect("Kadi");
+    const friend = await connect("Musa");
+    const hostChat = listen(host.socket);
+    const room = await call<RoomView<Match>>(host.socket, EVENTS.create, { game: "tintanto" });
+    expect(await refused(friend.socket, EVENTS.chatSend, { text: "hi" })).toMatch(/Join a room/);
+
+    const sent = await call<ChatMessage>(host.socket, EVENTS.chatSend, { text: "  Good   luck!  " });
+    expect(sent).toMatchObject({ guestId: host.guest.guestId, name: "Kadi", text: "Good luck!" });
+    await heardText(hostChat, "Good luck!");
+
+    // A late arrival gets the recent chat, then hears new messages; rude words and contact details are hidden.
+    const friendChat = listen(friend.socket);
+    await call(friend.socket, EVENTS.join, { code: room.code });
+    await until(host.updates, (v) => v.seats[1].guestId === friend.guest.guestId);
+    expect(friendChat.history?.map((m) => m.text)).toEqual(["Good luck!"]);
+    await call(friend.socket, EVENTS.chatSend, { text: "sh1t, call me on 076 123 456" });
+    await heardText(hostChat, "****, call me on [number]");
+    expect(await refused(friend.socket, EVENTS.chatSend, { text: "   " })).toMatch(/Type a message/);
+  });
+
+  it("limits how fast one person can send", async () => {
+    const host = await connect("Speedy");
+    await call(host.socket, EVENTS.create, { game: "tintanto" });
+    for (let i = 0; i < CHAT_BURST; i++) await call(host.socket, EVENTS.chatSend, { text: `message ${i}` });
+    expect(await refused(host.socket, EVENTS.chatSend, { text: "one more" })).toMatch(/Slow down/);
+  });
+
+  it("shows chat on the party screen, which cannot send, and forgets it when the party ends", async () => {
+    const table = await connect("Table");
+    const phone = await connect("Isatu");
+    const tableChat = listen(table.socket);
+    const room = await call<RoomView<Match>>(table.socket, EVENTS.create, { game: "tintanto", party: true });
+    await call(phone.socket, EVENTS.join, { code: room.code });
+    await call(phone.socket, EVENTS.chatSend, { text: "Rematch?" });
+    await heardText(tableChat, "Rematch?");
+    expect(await refused(table.socket, EVENTS.chatSend, { text: "hello" })).toMatch(/party screen/);
+
+    await call(table.socket, EVENTS.leave);
+    await until(phone.updates, (v) => v.status === "closed");
+    // Nothing about the chat is kept in MongoDB.
+    expect((await savedRoom(room.code)).doc).toBeNull();
   });
 });
 

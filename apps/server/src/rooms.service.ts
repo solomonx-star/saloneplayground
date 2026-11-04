@@ -231,6 +231,17 @@ export class RoomsService implements OnApplicationShutdown {
     });
   }
 
+  // Who a chat message is from: only a guest with a seat in the room, under their seat's name. The party screen
+  // shows the chat but does not send to it.
+  chatSender(guestId: string, code: string | undefined): GuestRef {
+    const room = code ? this.live.get(code) : undefined;
+    if (!room || room.status === "closed") throw new RoomError("Join a room to chat.");
+    if (room.party && room.hostId === guestId) throw new RoomError("The party screen shows the chat; players send messages from their phones.");
+    const seat = room.seats.find((s) => s.guestId === guestId);
+    if (!seat) throw new RoomError("Take a seat in the room to chat.");
+    return { guestId, name: seat.name };
+  }
+
   // The live match's latest frame in a real-time room, for a screen that has just joined.
   frame(code: string) { return this.touch.frame(code); }
 
