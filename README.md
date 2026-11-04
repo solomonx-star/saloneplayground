@@ -41,7 +41,7 @@ The repository is an npm workspace, ready for the version 2 game server:
 | --- | --- |
 | `apps/web` | The Next.js app: the games shelf and every game screen. Paths below starting `src/` are inside it. |
 | `apps/server` | The game server for online and party play: NestJS with Socket.IO, storing guests, rooms and finished rounds in MongoDB (`players`, `rooms`, `matches`). |
-| `packages/games` (`@salone/games`) | Rules and computer players for the turn-based games (Draft, Ludo, Tin Tan To), the matches as played online (`tintanto/match.ts`, `ludo/match.ts`, which records each roll and move so every screen can show it), plus the online protocol (`online/protocol.ts`) and the description of each game the server runs (`online/games.ts`). Plain TypeScript with no React or Phaser, so the web app and the game server can share them. |
+| `packages/games` (`@salone/games`) | Rules and computer players for the turn-based games (Draft, Ludo, Snakes and Ladders, Tin Tan To), the matches as played online (`tintanto/match.ts`, `ludo/match.ts`, `snakes/match.ts`, which records each roll and move so every screen can show it), plus the online protocol (`online/protocol.ts`) and the description of each game the server runs (`online/games.ts`). Plain TypeScript with no React or Phaser, so the web app and the game server can share them. |
 
 ## Balance Ball
 
@@ -112,6 +112,18 @@ The repository is an npm workspace, ready for the version 2 game server:
 - Levels: the computer scores each move (captures, getting home, getting out, staying out of reach, avoiding poison arrows and the hanging square) and looks one move ahead to play its two dice in the best order; Easy and Normal add randomness to those scores. It is still a dice game, so no level wins every time.
 - Tap the dice in the middle of the board or ROLL DICE (or press Space) to roll. Tokens glow for the die in use; when the two dice can move different tokens, tap a die to switch (or press D), then tap a glowing token (or press 1–4). With only one possible move it is made for you; with none, the roll ends.
 - Code: rules, house rules and computer player in `packages/games/src/ludo/rules.ts`, board layout in `ludo/board.ts`, the online match in `ludo/match.ts`, tests in `ludo/ludo.test.ts` and `online/online.test.ts`. Screens in `apps/web/src/components/`: `LudoGame.tsx` (one device), `ludo/LudoOnline.tsx` (online), sharing `ludo/LudoBoard.tsx`, `ludo/useLudoControls.ts`, `ludo/RuleChips.tsx` and `ludo/TurnClock.tsx`; `ludo/usePlayback.ts` animates the server's moves.
+
+## Snakes and Ladders (Snake and Leather)
+
+- One token each and one die; be first to square 100. Our own 10×10 board: seven bamboo ladders (three named after places: Sugar Loaf, the Cotton Tree, Mount Bintumani) and eight snakes found in Sierra Leone, from the night adder to the great rock python near the top.
+- 2, 3 or 4 players: against the computer (you are red), pass and play on one device, online, or party play (the TV shows the board, phones roll). Every roll moves the token, so the computer only rolls; there are no levels.
+- House rules, any mix:
+  1. **Exact Roll to Finish**: you must land exactly on 100; a roll past it bounces back.
+  2. **Six Rolls Again**: a 6 earns another roll, but three 6s in a row end the turn without moving.
+  3. **Six to Start**: tokens wait off the board (in the START strip) until their owner rolls a 6, which puts them on square 1.
+  4. **Snake Bite**: landing on the great rock python at 98 sends you right back to the start.
+- Tap the die (or press Space) to roll. The token steps square by square, then slides up a ladder or down a snake. Online, the server rolls for a player who is away on their turn.
+- Code: board layout in `packages/games/src/snakes/board.ts`, rules in `snakes/rules.ts`, the match record (each roll with its path, shared by one device and the server) in `snakes/match.ts`, tests in `snakes/snakes.test.ts`. Screens in `apps/web/src/components/snakes/`: `SnakesGame.tsx` (setup and one device), `SnakesOnline.tsx` (online and party), sharing `SnakesBoard.tsx` (the SVG board), `usePlayback.ts` (animates each roll) and `describe.ts` (each roll in words).
 
 ## Draft
 

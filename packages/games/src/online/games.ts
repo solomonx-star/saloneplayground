@@ -5,6 +5,8 @@ import { canRoll, makePlay, newLudoMatch, rematch, rollDice, standIn, type LudoM
 import { chooseMove as chooseLudoMove, LEVELS as LUDO_LEVELS, NO_RULES, RULES, TURN_SECONDS, type Level as LudoLevel, type Play, type Rule, type Rules } from "../ludo/rules";
 import { applyMove, canMove, newMatch, nextRound, type Match } from "../tintanto/match";
 import { chooseMove, LEVELS as TIN_TAN_TO_LEVELS, type Level, type Move } from "../tintanto/rules";
+import { canRoll as canRollSnakes, newSnakesMatch, rematch as snakesRematch, rollDie, standIn as snakesStandIn, type SnakesMatch } from "../snakes/match";
+import { LEVELS as SNAKES_LEVELS, NO_RULES as NO_SNAKES_RULES, RULES as SNAKES_RULES, type Rule as SnakesRule, type Rules as SnakesRules } from "../snakes/rules";
 import { newSummary, readOptions, seatsFor, type TouchAction, type TouchOptions, type TouchSummary } from "../touch/online";
 import { LEVELS as TOUCH_LEVELS } from "../touch/settings";
 import type { GameId } from "./protocol";
@@ -118,6 +120,42 @@ export const ludo: OnlineGame<LudoMatch, LudoAction, LudoOptions> = {
   roundOver: (match) => !!match.game.winner,
 };
 
+// ---- Snakes and Ladders ----
+
+// Seat i plays the i-th colour (Players 1 to 4 in turn order). There are no choices: a turn is a roll, made on the
+// server, which also plays for a player who is away.
+export type SnakesAction = { type: "roll" } | { type: "rematch" };
+export type SnakesOptions = { players: number; rules: SnakesRules };
+
+export const snakes: OnlineGame<SnakesMatch, SnakesAction, SnakesOptions> = {
+  label: "Snakes and Ladders",
+  levels: SNAKES_LEVELS,
+  defaultOptions: { players: 4, rules: NO_SNAKES_RULES },
+  options(requested, current) {
+    const asked = (requested ?? {}) as Partial<SnakesOptions>;
+    const players = [2, 3, 4].includes(asked.players as number) ? (asked.players as number) : current.players;
+    const rules = { ...current.rules };
+    for (const rule of Object.keys(SNAKES_RULES) as SnakesRule[]) if (typeof asked.rules?.[rule] === "boolean") rules[rule] = asked.rules[rule];
+    return { players, rules };
+  },
+  seats: (options) => options.players,
+  start: (options) => newSnakesMatch(options.players, options.rules),
+  turn: (match) => (match.game.winner === null ? match.game.turn : null),
+  act(match, seat, action, random = Math.random) {
+    if (action?.type === "rematch") return match.game.winner !== null ? snakesRematch(match) : "The game is not over yet.";
+    if (action?.type !== "roll") return "Unknown action.";
+    if (!canRollSnakes(match)) return "The game is over.";
+    if (seat !== match.game.turn) return "It is not your turn.";
+    return rollDie(match, die(random));
+  },
+  cpuAction: (match, seat) => (canRollSnakes(match) && seat === match.game.turn ? { type: "roll" } : null),
+  timeLimit: () => null,
+  // A game of luck: roll for a player who drops out rather than keep everyone waiting.
+  playsForAway: true,
+  standIn: (match, reason, random = Math.random) => snakesStandIn(match, reason, die(random)),
+  roundOver: (match) => match.game.winner !== null,
+};
+
 // ---- Draft ----
 
 // Seat 0 plays Black (bottom, moves first: the Blackman Trouble Rule), seat 1 plays White. A turn is sent as its steps
@@ -173,5 +211,5 @@ export const touch: OnlineGame<TouchSummary, TouchAction, TouchOptions> = {
   realtime: true,
 };
 
-export const ONLINE_GAMES: Record<GameId, OnlineGame<unknown, unknown, unknown>> = { tintanto: tinTanTo, ludo, draft, touch };
+export const ONLINE_GAMES: Record<GameId, OnlineGame<unknown, unknown, unknown>> = { tintanto: tinTanTo, ludo, draft, touch, snakes };
 export const isGameId = (value: unknown): value is GameId => typeof value === "string" && value in ONLINE_GAMES;

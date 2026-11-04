@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import type { LiveView, StatsView } from "@salone/games/online/admin";
+import { pageOfGame } from "@salone/games/online/protocol";
 import { CONFIG, type Config } from "./config";
 import { MODELS, type Models } from "./database";
 import { PresenceService } from "./presence.service";
@@ -94,8 +95,7 @@ export class AdminService {
     ]);
 
     // Online matches are stored under the server's game ids; the dashboard uses the web app's page names.
-    const pageOf: Record<string, string> = { tintanto: "tin-tan-to" };
-    const matchCount = new Map(gameMatches.map((m) => [pageOf[m._id] ?? m._id, m.matches]));
+    const matchCount = new Map(gameMatches.map((m) => [pageOfGame(m._id), m.matches]));
     const byDay = new Map(daily.map((d) => [d._id, d]));
     const total = totals[0];
     return {

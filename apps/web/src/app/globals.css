@@ -209,3 +209,16 @@ a.game-card{text-decoration:none}
 .admin-reports{display:flex;flex-direction:column;gap:10px}.admin-report{border-left:3px solid #e9906c}.admin-report header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.admin-report header>div{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;min-width:0}.admin-report header small{flex-basis:100%;font-size:12px;line-height:1.5}
 .admin-badge{padding:3px 7px;border-radius:4px;background:#5a2a1f;color:#ffd9cf;font:500 9px 'DM Mono',monospace;letter-spacing:.08em}
 .admin-report-messages{list-style:none;margin:12px 0 0;padding:10px 12px;border-radius:6px;background:#0e2c20;display:flex;flex-direction:column;gap:6px;font-size:13px;overflow-wrap:anywhere}.admin-report-messages time{font:10px 'DM Mono',monospace;margin-right:6px}
+/* Snakes and Ladders (components/snakes) */
+.snakes-content{max-width:860px}
+.snakes-board-wrap{width:min(100%,calc((100dvh - 250px) * .92),620px);padding:8px;background:#0e2c20;border:2px solid #24553f;border-radius:8px;box-shadow:0 12px 35px #06180f88}
+.snakes-board{display:block;width:100%;height:auto;border-radius:4px}
+.snakes-number{font:600 22px 'DM Mono',monospace;fill:#3d4b3b;opacity:.75}.snakes-home{font:700 22px 'DM Mono',monospace;letter-spacing:.12em;fill:#5a3d00}.snakes-strip-label{font:600 26px 'DM Mono',monospace;letter-spacing:.14em;fill:#bbceb9}
+.snakes-token{will-change:transform}.snakes-turn-ring{animation:snakes-spin 4s linear infinite;transform-box:fill-box;transform-origin:center}
+@keyframes snakes-spin{to{transform:rotate(360deg)}}
+.snakes-panel{width:min(100%,620px);display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:14px;row-gap:4px;align-items:center}
+.snakes-roll{grid-row:1/3;display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 14px;border-radius:10px;border:2px solid #ffffff30;background:#1b4b37;color:#f5f4e9;font:500 10px 'DM Mono',monospace;letter-spacing:.12em;box-shadow:0 4px 0 #0005}.snakes-roll:not(:disabled):not(div){cursor:pointer}.snakes-roll:disabled{opacity:.6;box-shadow:none}.snakes-roll .ludo-die-face{width:52px;height:52px}
+.party-screen .snakes-board-wrap{width:min(100%,calc((100dvh - 230px) * .92),900px)}.party-screen .snakes-panel{width:min(100%,900px)}
+.ludo-phone .snakes-board-wrap{width:100%}
+@media(prefers-reduced-motion:reduce){.snakes-turn-ring{animation:none}.snakes-token{transition:none!important}}
+@media(max-width:580px){.snakes-board-wrap{padding:4px;width:min(100%,calc((100dvh - 290px) * .92))}.snakes-roll .ludo-die-face{width:42px;height:42px}}

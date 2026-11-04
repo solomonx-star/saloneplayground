@@ -13,6 +13,7 @@ import { EVENTS, type Guest, type Reply, type RoomView } from "@salone/games/onl
 import type { LudoOptions } from "@salone/games/online/games";
 import type { LudoMatch } from "@salone/games/ludo/match";
 import type { DraftMatch } from "@salone/games/draft/match";
+import type { SnakesMatch } from "@salone/games/snakes/match";
 import { plays } from "@salone/games/ludo/rules";
 import type { TouchFrame, TouchSummary } from "@salone/games/touch/online";
 import { AppModule } from "./app.module";
@@ -447,6 +448,28 @@ describe("Draft rooms", () => {
     await call(host.socket, EVENTS.act, { action: { type: "turn", steps: [{ from: { r: 6, c: 1 }, to: { r: 5, c: 0 } }] } });
     const replied = await until<RoomView<DraftMatch>>(host.updates, (v) => v.match?.side === "black" && v.match.turns === 2);
     expect(replied.match?.last?.side).toBe("white");
+  });
+});
+
+describe("Snakes and Ladders rooms", () => {
+  it("rolls the die on the server, refuses rolls out of turn, and lets a computer seat take its turns", async () => {
+    const host = await connect("Mariama");
+    const friend = await connect("Osman");
+    const room = await call<RoomView<SnakesMatch>>(host.socket, EVENTS.create, { game: "snakes", options: { players: 3, rules: { exact: true } } });
+    expect(room.seats).toHaveLength(3);
+    await call(friend.socket, EVENTS.join, { code: room.code });
+    await call(host.socket, EVENTS.addCpu, { seat: 2, level: "normal" });
+    const started = await call<RoomView<SnakesMatch>>(host.socket, EVENTS.start);
+    expect(started.match?.game.rules.exact).toBe(true);
+    expect(await refused(friend.socket, EVENTS.act, { action: { type: "roll" } })).toMatch(/not your turn/);
+
+    // Each person rolls once; then the computer rolls by itself and it is the host's turn again.
+    let view = await call<RoomView<SnakesMatch>>(host.socket, EVENTS.act, { action: { type: "roll" } });
+    expect(view.match?.die).toBeGreaterThanOrEqual(1);
+    if (view.match?.game.turn === 1) view = await call<RoomView<SnakesMatch>>(friend.socket, EVENTS.act, { action: { type: "roll" } });
+    const back = await until<RoomView<SnakesMatch>>(host.updates, (v) => v.game === "snakes" && (v.match?.seq ?? 0) >= 3 && v.match?.game.turn === 0);
+    expect(back.match?.events.some((e) => e.kind === "rolled" && e.move.player === 2)).toBe(true);
+    expect(await refused(host.socket, EVENTS.act, { action: { type: "rematch" } })).toMatch(/not over/);
   });
 });
 

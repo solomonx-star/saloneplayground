@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { io } from "socket.io-client";
 import type { DayStat, LiveView, StatsView } from "@salone/games/online/admin";
 import { REPORT_DAYS, REPORT_REASONS, type ChatReportView } from "@salone/games/online/chat";
-import { EVENTS, type Reply } from "@salone/games/online/protocol";
+import { EVENTS, pageOfGame, type Reply } from "@salone/games/online/protocol";
 import { GAMES } from "@/components/games";
 import { serverUrl } from "@/online/useRoom";
 
@@ -186,7 +186,7 @@ function ReportsSection({ reports, onDismiss }: { reports: ChatReportView[] | nu
           <div>
             <strong>{who(r.reported.name, r.reported.guestId)}</strong>
             {r.blocked && <span className="admin-badge">BLOCKED FROM CHAT</span>}
-            <small className="admin-muted">{REPORT_REASONS[r.reason]} · reported by {who(r.reporter.name, r.reporter.guestId)} · {gameName(r.game === "tintanto" ? "tin-tan-to" : r.game)} · room <span className="mono">{r.room}</span> · {when(r.at)}</small>
+            <small className="admin-muted">{REPORT_REASONS[r.reason]} · reported by {who(r.reporter.name, r.reporter.guestId)} · {gameName(pageOfGame(r.game))} · room <span className="mono">{r.room}</span> · {when(r.at)}</small>
           </div>
           <button className="admin-ghost" onClick={() => onDismiss(r.id)}>DISMISS</button>
         </header>
@@ -231,7 +231,7 @@ function LiveSection({ live, elapsed }: { live: LiveView | null; elapsed: number
         <thead><tr><th>Room</th><th>Game</th><th>Status</th><th className="num">People</th><th className="num">Computers</th><th className="num">Last change</th></tr></thead>
         <tbody>{live.rooms.map((r) => <tr key={r.code}>
           <td className="mono">{r.code}{r.party && <small className="admin-muted"> · party</small>}</td>
-          <td>{gameName(r.game === "tintanto" ? "tin-tan-to" : r.game)}</td>
+          <td>{gameName(pageOfGame(r.game))}</td>
           <td>{r.status === "playing" ? "Playing" : "In the lobby"}</td>
           <td className="num">{r.people}</td>
           <td className="num">{r.computers}</td>

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { GAMES } from "@/components/games";
 import { usePresence } from "@/online/presence";
 
-const futureGames = ["Skipping Rope", "Six Cup", "Rounders", "Akra", "Stopper Game", "Boatkidie", "Adai", "Play Cook", "Tamatis Cup", "Stone Gi Mi Road", "Monday–Tuesday", "Kick en Home", "Kick en Seize", "Snake and Leather", "Kick Seed", "Gbondo", "Taxi"];
+const futureGames = ["Skipping Rope", "Six Cup", "Rounders", "Akra", "Stopper Game", "Boatkidie", "Adai", "Play Cook", "Tamatis Cup", "Stone Gi Mi Road", "Monday–Tuesday", "Kick en Home", "Kick en Seize", "Kick Seed", "Gbondo", "Taxi"];
 
 // The home page: the games shelf. Each game opens on its own screen.
 export default function GameShelf() {
