@@ -53,3 +53,20 @@ export type StatsView = {
   topPlayers: PlayerStat[];
   recent: SessionRow[];
 };
+
+// ---- Data use ----
+
+// What the game server sent ("down", to screens) and received ("up"), per game, since `since`. Bytes are the
+// Socket.IO packets as they go over the wire, before any compression. `game` is a game's id, "admin" (dashboards)
+// or "none" (screens on the games shelf). Per-minute figures are per open connection, null before any time counted.
+export type TrafficEvent = { event: string; direction: "down" | "up"; messages: number; bytes: number };
+export type GameTraffic = {
+  game: string;
+  playerMinutes: number;
+  downBytes: number;
+  upBytes: number;
+  kbPerMinuteDown: number | null;
+  kbPerMinuteUp: number | null;
+  events: TrafficEvent[];
+};
+export type TrafficView = { since: string; seconds: number; games: GameTraffic[] };

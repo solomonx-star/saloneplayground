@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { io } from "socket.io-client";
-import type { DayStat, LiveView, StatsView } from "@salone/games/online/admin";
+import type { DayStat, LiveView, StatsView, TrafficView } from "@salone/games/online/admin";
 import { REPORT_DAYS, REPORT_REASONS, type ChatReportView } from "@salone/games/online/chat";
 import { EVENTS, pageOfGame, type Reply } from "@salone/games/online/protocol";
 import { GAMES } from "@/components/games";
@@ -15,6 +15,8 @@ import { serverUrl } from "@/online/useRoom";
 // server says a game session has ended.
 
 const TOKEN_KEY = "salone-admin-token";
+// How often the data-use figures are read while the dashboard is open.
+const TRAFFIC_MS = 10_000;
 // A slow safety refresh of the statistics (for example when a new day starts); pushes cover everything else.
 const STATS_MS = 5 * 60 * 1000;
 // Several sessions ending together cause one statistics read.
@@ -140,6 +142,26 @@ function Dashboard({ token, onSignOut }: { token: string; onSignOut: (error?: st
     return () => { cancelled = true; };
   }, [token, onSignOut, reportsVersion]);
 
+  // Data use: read now and every few seconds; Reset starts the count again (to measure one session).
+  const [traffic, setTraffic] = useState<TrafficView | null>(null);
+  const [trafficVersion, setTrafficVersion] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    const read = () => getJson<TrafficView>("traffic", token).then(
+      (value) => { if (!cancelled) setTraffic(value); },
+      (e) => { if (!cancelled && e instanceof AuthError) onSignOut(e.message); },
+    );
+    void read();
+    const timer = window.setInterval(read, TRAFFIC_MS);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [token, onSignOut, trafficVersion]);
+
+  async function resetTraffic() {
+    const response = await fetch(`${serverUrl()}/admin/traffic/reset`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => null);
+    if (!response?.ok) setError("Could not reset the data-use count. Try again.");
+    setTrafficVersion((v) => v + 1);
+  }
+
   async function dismiss(id: string) {
     setReports((list) => list?.filter((r) => r.id !== id) ?? null);
     const response = await fetch(`${serverUrl()}/admin/reports/${id}/dismiss`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => null);
@@ -160,6 +182,7 @@ function Dashboard({ token, onSignOut }: { token: string; onSignOut: (error?: st
       {!connected && live && <p className="admin-error admin-banner" role="alert">Lost the live connection to the game server. Reconnecting… (the figures below may be out of date)</p>}
       <ReportsSection reports={reports} onDismiss={(id) => void dismiss(id)} />
       <LiveSection live={live} elapsed={elapsed} />
+      <TrafficSection traffic={traffic} onReset={() => void resetTraffic()} />
       <section className="admin-section" aria-labelledby="stats-title">
         <div className="admin-section-head">
           <h2 id="stats-title">Statistics</h2>
@@ -171,6 +194,32 @@ function Dashboard({ token, onSignOut }: { token: string; onSignOut: (error?: st
       </section>
     </div>
   </main>;
+}
+
+// Data use per game: what each player's device downloads and uploads per minute of play, and which messages cost the
+// most. Counted on the game server since it started or since the last reset.
+const kb = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${(bytes / 1024).toFixed(1)} KB`);
+function TrafficSection({ traffic, onReset }: { traffic: TrafficView | null; onReset: () => void }) {
+  if (!traffic) return null;
+  const games = traffic.games.filter((g) => g.playerMinutes > 0 || g.downBytes > 0);
+  return <section className="admin-section" aria-labelledby="traffic-title">
+    <div className="admin-section-head">
+      <h2 id="traffic-title">Data use</h2>
+      <button className="admin-ghost" onClick={onReset}>RESET</button>
+    </div>
+    <p className="admin-muted">Since {when(traffic.since)} ({duration(traffic.seconds)}). Per player: what one device downloads (↓) and uploads (↑) for each minute it has the game open. Before compression.</p>
+    {games.length === 0 ? <p className="admin-muted">Nothing counted yet.</p> : <div className="admin-card"><div className="admin-table-wrap"><table className="admin-table">
+      <thead><tr><th>Game</th><th className="num">Player-minutes</th><th className="num">↓ per minute</th><th className="num">↑ per minute</th><th className="num">↓ total</th><th>Biggest messages</th></tr></thead>
+      <tbody>{games.map((g) => <tr key={g.game}>
+        <td>{g.game === "none" ? "Games shelf" : g.game === "admin" ? "Admin dashboards" : gameName(pageOfGame(g.game))}</td>
+        <td className="num">{g.playerMinutes}</td>
+        <td className="num">{g.kbPerMinuteDown === null ? "—" : `${g.kbPerMinuteDown} KB`}</td>
+        <td className="num">{g.kbPerMinuteUp === null ? "—" : `${g.kbPerMinuteUp} KB`}</td>
+        <td className="num">{kb(g.downBytes)}</td>
+        <td><small className="admin-muted">{g.events.slice(0, 3).map((e) => `${e.direction === "down" ? "↓" : "↑"} ${e.event} ${kb(e.bytes)} (${e.messages}× · ${Math.round(e.bytes / Math.max(1, e.messages))} B each)`).join(" · ")}</small></td>
+      </tr>)}</tbody>
+    </table></div></div>}
+  </section>;
 }
 
 // Chat reports from players, newest first, each with the reported player's recent messages. Dismissing one takes it

@@ -7,7 +7,7 @@ import { io, type Socket } from "socket.io-client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Match } from "@salone/games/tintanto/match";
 import { chooseMove } from "@salone/games/tintanto/rules";
-import type { LiveView, StatsView } from "@salone/games/online/admin";
+import type { LiveView, StatsView, TrafficView } from "@salone/games/online/admin";
 import { CHAT_BURST, type ChatMessage, type ChatReportView, type ChatState } from "@salone/games/online/chat";
 import { EVENTS, type Guest, type Reply, type RoomView } from "@salone/games/online/protocol";
 import type { LudoOptions } from "@salone/games/online/games";
@@ -683,6 +683,27 @@ describe("admin dashboard", () => {
     while (sessionsEnded === 0 && Date.now() < deadline + 5000) await new Promise((r) => setTimeout(r, 20));
     expect(sessionsEnded).toBe(1);
     dashboard.disconnect();
+  });
+
+  it("counts the data each game sends and receives, per player-minute, and starts again on reset", async () => {
+    const reset = await fetch(`${url}/admin/traffic/reset`, { method: "POST", headers: { Authorization: "Bearer test-admin-secret" } });
+    expect(reset.status).toBe(200);
+    const host = await connect("Counter");
+    const friend = await connect("Friend");
+    const room = await call<RoomView<Match>>(host.socket, EVENTS.create, { game: "tintanto" });
+    await call(friend.socket, EVENTS.join, { code: room.code });
+    await call(host.socket, EVENTS.start);
+    await call(host.socket, EVENTS.act, { action: { type: "move", move: { from: 7, to: 4 } } });
+    await until(friend.updates, (v) => v.match?.last?.to === 4);
+    const view = await (await admin("traffic")).json() as TrafficView;
+    const tintanto = view.games.find((g) => g.game === "tintanto");
+    expect(tintanto).toBeDefined();
+    const updates = tintanto!.events.find((e) => e.event === "room:update" && e.direction === "down");
+    expect(updates!.messages).toBeGreaterThanOrEqual(4);
+    expect(updates!.bytes).toBeGreaterThan(updates!.messages * 100);
+    expect(tintanto!.events.some((e) => e.event === "game:act" && e.direction === "up")).toBe(true);
+    expect(tintanto!.events.some((e) => e.event === "reply" && e.direction === "down")).toBe(true);
+    expect((await fetch(`${url}/admin/traffic`)).status).toBe(401);
   });
 
   it("ignores reports that are not valid", async () => {

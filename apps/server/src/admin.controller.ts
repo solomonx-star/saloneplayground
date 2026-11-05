@@ -1,8 +1,9 @@
 import { Controller, Get, Headers, HttpCode, Inject, NotFoundException, Param, Post, Query, UnauthorizedException } from "@nestjs/common";
 import type { ChatReportView } from "@salone/games/online/chat";
-import type { LiveView, StatsView } from "@salone/games/online/admin";
+import type { LiveView, StatsView, TrafficView } from "@salone/games/online/admin";
 import { AdminService } from "./admin.service";
 import { ChatService } from "./chat.service";
+import { TrafficService } from "./traffic.service";
 
 export const ADMIN_OFF = "The admin dashboard is off: set ADMIN_TOKEN on the game server.";
 export const ADMIN_WRONG = "That admin token is not right.";
@@ -12,7 +13,11 @@ export const ADMIN_WRONG = "That admin token is not right.";
 @Controller("admin")
 export class AdminController {
   // Explicit @Inject because the server runs with tsx, which does not emit the type metadata Nest would otherwise use.
-  constructor(@Inject(AdminService) private readonly admin: AdminService, @Inject(ChatService) private readonly chat: ChatService) {}
+  constructor(
+    @Inject(AdminService) private readonly admin: AdminService,
+    @Inject(ChatService) private readonly chat: ChatService,
+    @Inject(TrafficService) private readonly traffic: TrafficService,
+  ) {}
 
   @Get("live")
   live(@Headers("authorization") auth?: string): Promise<LiveView> {
@@ -39,6 +44,22 @@ export class AdminController {
   async dismiss(@Headers("authorization") auth: string | undefined, @Param("id") id: string) {
     this.check(auth);
     if (!(await this.chat.dismiss(id))) throw new NotFoundException("That report is not open.");
+    return { ok: true };
+  }
+
+  // How much data the server has sent and received per game since it started (or the last reset).
+  @Get("traffic")
+  trafficView(@Headers("authorization") auth?: string): TrafficView {
+    this.check(auth);
+    return this.traffic.view();
+  }
+
+  // Starts counting again from now, to measure one session on its own.
+  @Post("traffic/reset")
+  @HttpCode(200)
+  resetTraffic(@Headers("authorization") auth?: string) {
+    this.check(auth);
+    this.traffic.reset();
     return { ok: true };
   }
 

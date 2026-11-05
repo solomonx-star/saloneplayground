@@ -1,5 +1,5 @@
 import { Inject, type OnModuleDestroy } from "@nestjs/common";
-import { ConnectedSocket, MessageBody, type OnGatewayDisconnect, type OnGatewayInit, SubscribeMessage, WebSocketGateway, WebSocketServer } from "@nestjs/websockets";
+import { ConnectedSocket, MessageBody, type OnGatewayConnection, type OnGatewayDisconnect, type OnGatewayInit, SubscribeMessage, WebSocketGateway, WebSocketServer } from "@nestjs/websockets";
 import type { Server, Socket } from "socket.io";
 import { cleanPresence } from "@salone/games/online/admin";
 import { EVENTS, type Reply } from "@salone/games/online/protocol";
@@ -9,6 +9,7 @@ import { ChatService } from "./chat.service";
 import { GuestsService } from "./guests.service";
 import { PresenceService } from "./presence.service";
 import { RoomError, RoomsService, type GuestRef } from "./rooms.service";
+import { TrafficService } from "./traffic.service";
 
 // What the server remembers about each connection: who the guest is and which room they have open.
 type SocketData = { guest?: GuestRef; code?: string };
@@ -33,7 +34,7 @@ async function reply<T>(work: () => Promise<T>): Promise<Reply<T>> {
 // requests; each request gets a Reply, and everyone in the room gets the room's new state as an update. Which web
 // addresses may connect is set in setup.ts from WEB_ORIGIN.
 @WebSocketGateway()
-export class GameGateway implements OnGatewayInit, OnGatewayDisconnect, OnModuleDestroy {
+export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy {
   @WebSocketServer() private server!: Server;
 
   // Explicit @Inject because the server runs with tsx, which does not emit the type metadata Nest would otherwise use.
@@ -43,6 +44,7 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect, OnModule
     @Inject(PresenceService) private readonly presence: PresenceService,
     @Inject(AdminService) private readonly admin: AdminService,
     @Inject(ChatService) private readonly chat: ChatService,
+    @Inject(TrafficService) private readonly traffic: TrafficService,
   ) {}
 
   private adminPush: NodeJS.Timeout | null = null;
@@ -189,6 +191,11 @@ export class GameGateway implements OnGatewayInit, OnGatewayDisconnect, OnModule
       await socket.join(ADMINS);
       return this.admin.live();
     });
+  }
+
+  // Every connection's data use is counted, under the game it is in (see TrafficService).
+  handleConnection(socket: Socket) {
+    this.traffic.watch(socket, () => (socket.rooms.has(ADMINS) ? "admin" : this.rooms.gameOf(this.data(socket).code)));
   }
 
   async handleDisconnect(socket: Socket) {

@@ -242,6 +242,9 @@ export class RoomsService implements OnApplicationShutdown {
     return { guestId, name: seat.name };
   }
 
+  // The game a room in use is playing, or null if the room is not open on this server.
+  gameOf(code: string | undefined) { return (code && this.live.get(code)?.game) || null; }
+
   // The room's game and the people seated in it, for taking a chat report.
   chatRoom(code: string): { game: RoomView["game"]; people: GuestRef[] } {
     const room = this.live.get(code);
