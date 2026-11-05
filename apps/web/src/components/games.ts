@@ -7,6 +7,7 @@ export const GAMES = [
   { slug: "marbles", name: "Marbles", icon: "◎", desc: "Flick your shooter and knock marbles out of the ring." },
   { slug: "tin-tan-to", name: "Tin Tan To", icon: "✕", desc: "Three pieces each on a drawn board. Slide along the lines to make three in a row." },
   { slug: "ludo", name: "Ludo", icon: "⚄", desc: "Two dice, four tokens, and six house rules from Poison Arrow to Taxi." },
+  { slug: "botkidi", name: "Botkidi", icon: "◍", desc: "Throw your bottle lid into the chalk square to be the Hitter, then knock everyone else's lids away." },
   { slug: "snakes-and-ladders", name: "Snakes and Ladders · Snake and Leather", cta: "Snakes and Ladders", icon: "⚂", desc: "Climb bamboo ladders up Sugar Loaf and Bintumani, and dodge the green mamba on the way to 100." },
 ] as const;
 

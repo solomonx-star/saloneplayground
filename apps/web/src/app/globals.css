@@ -222,3 +222,10 @@ a.game-card{text-decoration:none}
 .ludo-phone .snakes-board-wrap{width:100%}
 @media(prefers-reduced-motion:reduce){.snakes-turn-ring{animation:none}.snakes-token{transition:none!important}}
 @media(max-width:580px){.snakes-board-wrap{padding:4px;width:min(100%,calc((100dvh - 290px) * .92))}.snakes-roll .ludo-die-face{width:42px;height:42px}}
+/* Botkidi (components/botkidi) */
+.game-screen .game-stage .game-frame.botkidi-frame{width:min(100%,calc(100dvh - 250px));aspect-ratio:1}.botkidi-frame .game-host{touch-action:none}
+.botkidi-bottom{display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 16px 14px;min-height:0}
+.botkidi-notice{position:static;max-width:min(100%,720px);pointer-events:auto}
+.botkidi-players{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;justify-content:center;gap:6px}.botkidi-players li{display:flex;align-items:center;gap:7px;padding:5px 10px;border-radius:999px;background:#0d2f24;border:1px solid #ffffff22;color:#e9f2e9;font:10px 'DM Mono',monospace;letter-spacing:.05em}
+.botkidi-players li.turn{border-color:var(--lime);box-shadow:0 0 0 1px var(--lime) inset}.botkidi-players i{width:12px;height:12px;border-radius:50%;border:2px solid #fff}.botkidi-players span{display:flex;flex-direction:column;line-height:1.2}.botkidi-players small{font-size:8px;color:var(--lime)}.botkidi-players b{color:var(--lime);font-size:13px}
+@media(max-width:580px){.game-screen .game-stage .game-frame.botkidi-frame{width:min(100%,calc(100dvh - 300px))}.botkidi-bottom{padding:8px 10px 10px}}

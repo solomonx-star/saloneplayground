@@ -85,6 +85,17 @@ The repository is an npm workspace, ready for the version 2 game server:
 - The ground is rough on purpose: a full-power shot rolls about two-thirds of the way across, so marbles are chipped out rather than blasted. In self-play the computer clears about 1, 2 and 3 marbles a turn on Easy, Normal and Hard.
 - Code: tuning in `src/components/marbles/settings.ts`, physics in `marbles/physics.ts`, rules in `marbles/rules.ts`, the computer player (which tries shots out in the physics before taking one) in `marbles/ai.ts`, tests in `marbles/marbles.test.ts`, scene in `marbles/scene.ts`, screen in `MarblesGame.tsx`.
 
+## Botkidi (bottle lids)
+
+- A street game Sierra Leonean children played with bottle lids and sticks. Rules from the Wellbeing SA *Multicultural Children's Games* sheet (contributed by Sidique): <https://cdn.wellbeing.sa.gov.au/downloads/Children-Game-Sierra-Leone-Botkidi.pdf>
+  1. Everyone throws their lid from the throwing line at the chalk square against the wall. If more than one lands in, those players throw again until only one has; if nobody does, everyone throws again.
+  2. That player is the **Hitter** (the sheet's "Player 1") and hits every other lid as far away as possible.
+  3. The others take turns hitting their own lid towards the square. Each time one misses, the Hitter hits it away again. A lid knocked into the square by any shot counts as home. The round ends when every lid is in.
+- The sheet does not say who wins, so places go in finishing order: the Hitter first, then each player in the order their lid got in. Points per place (last gets 0, each place above one more) over 1, 3 or 5 rounds; most points wins.
+- House rule **Flat Side** (from the contributor's note that a lid lying on its flat side is much harder to hit): a lid that moved comes to rest on its edge or lying flat (you see its cork liner), half and half; a lid lying flat only gets 60% of the speed of a hit.
+- 2 to 5 players: against the computer (you are red; Easy, Normal, Hard) or pass and play. Slide your lid along the line, then pull back from it and let go to throw; for a hit, pull back from the lid with the stick. A pull can also start anywhere on the yard (the shot goes the opposite way to the drag), and it keeps counting past the edge of the yard, so a lid near the edge can still be hit at full power. The computer tries shots out in the physics model and keeps the one with the most room for error; as the Hitter it picks the direction that sends a lid furthest from the square.
+- Code in `apps/web/src/components/botkidi/`: `settings.ts` (all tuning), `physics.ts` (lids, wall and yard), `rules.ts` (the rules as a state machine), `ai.ts`, `scene.ts` (Phaser), `BotkidiGame.tsx` (setup and screen), tests in `botkidi.test.ts`.
+
 ## Tin Tan To
 
 - The local three-in-a-row game, played on a board drawn on paper: nine points joined by the outer rectangle, the middle row and column, and the two long diagonals through the centre.

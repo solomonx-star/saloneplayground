@@ -16,6 +16,7 @@ const SCREENS: Record<GameSlug, Game> = {
   marbles: dynamic(() => import("@/components/MarblesGame"), { ssr: false }),
   "tin-tan-to": dynamic(() => import("@/components/TinTanToGame"), { ssr: false }),
   ludo: dynamic(() => import("@/components/LudoGame"), { ssr: false }),
+  botkidi: dynamic(() => import("@/components/botkidi/BotkidiGame"), { ssr: false }),
   "snakes-and-ladders": dynamic(() => import("@/components/snakes/SnakesGame"), { ssr: false }),
 };
 
