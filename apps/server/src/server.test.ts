@@ -9,7 +9,7 @@ import type { Match } from "@salone/games/tintanto/match";
 import { chooseMove } from "@salone/games/tintanto/rules";
 import type { LiveView, StatsView, TrafficView } from "@salone/games/online/admin";
 import { CHAT_BURST, type ChatMessage, type ChatReportView, type ChatState } from "@salone/games/online/chat";
-import { EVENTS, type Guest, type Reply, type RoomView } from "@salone/games/online/protocol";
+import { EVENTS, type Guest, type Lean, type Reply, type RoomView } from "@salone/games/online/protocol";
 import type { LudoOptions } from "@salone/games/online/games";
 import type { LudoMatch } from "@salone/games/ludo/match";
 import type { DraftMatch } from "@salone/games/draft/match";
@@ -136,6 +136,38 @@ describe("rooms", () => {
     expect(doc?.status).toBe("playing");
     expect((doc?.match as Match).moves).toBe(2);
     expect(doc?.expiresAt).toBeInstanceOf(Date);
+  });
+
+  it("replies to a lean screen's change with only the version, and compresses the connection", async () => {
+    const socket = io(url, { transports: ["websocket"], forceNew: true, reconnection: false });
+    sockets.push(socket);
+    const updates: RoomView[] = [];
+    socket.on(EVENTS.update, (view: RoomView) => updates.push(view));
+    await call<Guest>(socket, EVENTS.hello, { name: "Lean", lean: true });
+    // Creating or joining still answers with the whole room: the screen is not in it yet to get the update.
+    const room = await call<RoomView<Match>>(socket, EVENTS.create, { game: "tintanto" });
+    expect(room.seats).toHaveLength(2);
+    const added = await call<Lean>(socket, EVENTS.addCpu, { seat: 1, level: "easy" });
+    expect(added).toEqual({ version: expect.any(Number) });
+    const seen = await until(updates, (v) => v.seats[1].cpu);
+    expect(seen.version).toBe(added.version);
+    // Screens that do not ask for it (older ones) still get the whole room back.
+    const older = await connect("Older");
+    const theirs = await call<RoomView<Match>>(older.socket, EVENTS.create, { game: "tintanto" });
+    expect((await call<RoomView<Match>>(older.socket, EVENTS.addCpu, { seat: 1, level: "easy" })).seats[1].cpu).toBe(true);
+    expect(theirs.code).not.toBe(room.code);
+    const ws = (socket.io.engine.transport as unknown as { ws: { extensions: string } }).ws;
+    expect(ws.extensions).toContain("permessage-deflate");
+  });
+
+  it("works over plain HTTP requests for networks that block WebSockets", async () => {
+    const socket = io(url, { transports: ["polling"], forceNew: true, reconnection: false });
+    sockets.push(socket);
+    const guest = await call<Guest>(socket, EVENTS.hello, { name: "Polling", lean: true });
+    expect(guest.name).toBe("Polling");
+    const room = await call<RoomView<Match>>(socket, EVENTS.create, { game: "tintanto" });
+    expect(room.seats[0].guestId).toBe(guest.guestId);
+    expect(socket.io.engine.transport.name).toBe("polling");
   });
 
   it("fills a seat with a computer player that moves on its own, and records the finished round", async () => {

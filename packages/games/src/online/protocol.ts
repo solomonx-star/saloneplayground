@@ -31,6 +31,10 @@ export type RoomView<M = unknown, O = unknown> = {
   version: number;
 };
 
+// A screen can say `lean: true` in its hello: the reply to a change it asks for (settings, seats, start, a move) is then
+// only the room's new version, since the room itself arrives as an update to everyone. Saves sending it twice.
+export type Lean = { version: number };
+
 // A guest's identity: the token proves it is the same guest when they come back, so keep it private.
 export type Guest = { guestId: string; token: string; name: string };
 

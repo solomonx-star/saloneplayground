@@ -17,6 +17,21 @@ export function serverUrl() {
   return `${window.location.protocol}//${window.location.hostname}:4000`;
 }
 
+// How every screen connects to the game server. WebSocket first; on a network that blocks WebSockets (some mobile
+// networks and office proxies do), it falls back to plain HTTP requests, which cost more data but work.
+export function connectOptions(reconnectionDelayMax: number) {
+  return { transports: ["websocket", "polling"], tryAllTransports: true, reconnectionDelayMax };
+}
+
+// Reconnects straight away when the device gets its connection back or the screen comes back into view, rather than
+// waiting for the next retry (a phone that lost signal, or was put down, should be back in the game at once).
+export function reconnectWhenBack(socket: Socket) {
+  const retry = () => { if (!socket.connected && document.visibilityState === "visible") socket.connect(); };
+  window.addEventListener("online", retry);
+  document.addEventListener("visibilitychange", retry);
+  return () => { window.removeEventListener("online", retry); document.removeEventListener("visibilitychange", retry); };
+}
+
 const GUEST_KEY = "salone-guest";
 const roomKey = (game: GameId) => `salone-room-${game}`;
 
@@ -66,12 +81,13 @@ export function useRoom<M, O = unknown>(game: GameId, joinCode?: string) {
   }, []);
 
   useEffect(() => {
-    const socket = io(serverUrl(), { transports: ["websocket"], reconnectionDelayMax: 4000 });
+    const socket = io(serverUrl(), connectOptions(4000));
     socketRef.current = socket;
+    const stopRetrying = reconnectWhenBack(socket);
     socket.on("connect", async () => {
       // Say hello as the guest this device already is, then go back to the room it was in, if any.
       const saved = read<Guest>(GUEST_KEY);
-      const hello: Reply<Guest> = await socket.emitWithAck(EVENTS.hello, saved ?? {});
+      const hello: Reply<Guest> = await socket.emitWithAck(EVENTS.hello, { ...saved, lean: true });
       if (!hello.ok) { setError(hello.error); return; }
       write(GUEST_KEY, hello.value);
       setGuest(hello.value);
@@ -108,7 +124,7 @@ export function useRoom<M, O = unknown>(game: GameId, joinCode?: string) {
       }
       setRoom(view);
     });
-    return () => { socket.disconnect(); socketRef.current = null; };
+    return () => { stopRetrying(); socket.disconnect(); socketRef.current = null; };
   }, [game, joinCode, setRoom]);
 
   // Sends a request; on success applies the room it returns, on failure shows the server's message.
@@ -147,7 +163,7 @@ export function useRoom<M, O = unknown>(game: GameId, joinCode?: string) {
   // Updates the name this guest plays under (on this device and the server).
   async function rename(name: string) {
     const saved = read<Guest>(GUEST_KEY);
-    const renamed = await request<Guest>(EVENTS.hello, { ...saved, name });
+    const renamed = await request<Guest>(EVENTS.hello, { ...saved, name, lean: true });
     if (renamed) { write(GUEST_KEY, renamed); setGuest(renamed); }
     return !!renamed;
   }
@@ -169,12 +185,14 @@ export function useRoom<M, O = unknown>(game: GameId, joinCode?: string) {
     sendChat: (text: string) => chatRequest(EVENTS.chatSend, { text }),
     // Reports a player in the room to the admins. Answers with the server's reason when it is refused.
     reportPlayer: (guestId: string, reason: ReportReason) => chatRequest(EVENTS.chatReport, { guestId, reason }),
-    setOptions: async (options: Partial<O>) => show(await request<RoomView<M, O>>(EVENTS.options, { options })),
-    addCpu: async (seat: number, level: string) => show(await request<RoomView<M, O>>(EVENTS.addCpu, { seat, level })),
-    removeCpu: async (seat: number) => show(await request<RoomView<M, O>>(EVENTS.removeCpu, { seat })),
-    start: async () => show(await request<RoomView<M, O>>(EVENTS.start)),
-    act: async (action: unknown) => show(await request<RoomView<M, O>>(EVENTS.act, { action })),
-    takeSeat: async (seat: number) => show(await request<RoomView<M, O>>(EVENTS.seat, { seat })),
+    // Changes to the room: the new room arrives as an update (to everyone, this screen included), so the reply only
+    // says whether it worked (see Lean in protocol.ts).
+    setOptions: async (options: Partial<O>) => { await request(EVENTS.options, { options }); },
+    addCpu: async (seat: number, level: string) => { await request(EVENTS.addCpu, { seat, level }); },
+    removeCpu: async (seat: number) => { await request(EVENTS.removeCpu, { seat }); },
+    start: async () => { await request(EVENTS.start); },
+    act: async (action: unknown) => { await request(EVENTS.act, { action }); },
+    takeSeat: async (seat: number) => { await request(EVENTS.seat, { seat }); },
     // Real-time games: every frame of the live match (returns a function that stops listening), and this player's
     // stick and buttons. Input is sent without waiting for an answer: the next frame shows the result.
     onFrame(listener: (frame: unknown) => void) {

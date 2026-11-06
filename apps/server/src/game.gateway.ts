@@ -2,7 +2,7 @@ import { Inject, type OnModuleDestroy } from "@nestjs/common";
 import { ConnectedSocket, MessageBody, type OnGatewayConnection, type OnGatewayDisconnect, type OnGatewayInit, SubscribeMessage, WebSocketGateway, WebSocketServer } from "@nestjs/websockets";
 import type { Server, Socket } from "socket.io";
 import { cleanPresence } from "@salone/games/online/admin";
-import { EVENTS, type Reply } from "@salone/games/online/protocol";
+import { EVENTS, type Lean, type Reply, type RoomView } from "@salone/games/online/protocol";
 import { ADMIN_OFF, ADMIN_WRONG } from "./admin.controller";
 import { AdminService } from "./admin.service";
 import { ChatService } from "./chat.service";
@@ -12,7 +12,8 @@ import { RoomError, RoomsService, type GuestRef } from "./rooms.service";
 import { TrafficService } from "./traffic.service";
 
 // What the server remembers about each connection: who the guest is and which room they have open.
-type SocketData = { guest?: GuestRef; code?: string };
+// `lean`: the screen said in its hello that it only needs a short reply to a room change (see Lean in protocol.ts).
+type SocketData = { guest?: GuestRef; code?: string; lean?: boolean };
 // The Socket.IO room of signed-in admin dashboards.
 const ADMINS = "admins";
 // The live view is pushed to dashboards at most this often, however busy the site is.
@@ -69,6 +70,7 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     return reply(async () => {
       const guest = await this.guests.hello(body ?? {});
       this.data(socket).guest = { guestId: guest.guestId, name: guest.name };
+      this.data(socket).lean = body?.lean === true;
       return guest;
     });
   }
@@ -112,32 +114,32 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
 
   @SubscribeMessage(EVENTS.options)
   options(@ConnectedSocket() socket: Socket, @MessageBody() body: Body) {
-    return reply(() => this.rooms.setOptions(this.guest(socket), this.data(socket).code, body?.options));
+    return reply(() => this.changed(socket, this.rooms.setOptions(this.guest(socket), this.data(socket).code, body?.options)));
   }
 
   @SubscribeMessage(EVENTS.addCpu)
   addCpu(@ConnectedSocket() socket: Socket, @MessageBody() body: Body) {
-    return reply(() => this.rooms.addCpu(this.guest(socket), this.data(socket).code, body?.seat, body?.level));
+    return reply(() => this.changed(socket, this.rooms.addCpu(this.guest(socket), this.data(socket).code, body?.seat, body?.level)));
   }
 
   @SubscribeMessage(EVENTS.removeCpu)
   removeCpu(@ConnectedSocket() socket: Socket, @MessageBody() body: Body) {
-    return reply(() => this.rooms.removeCpu(this.guest(socket), this.data(socket).code, body?.seat));
+    return reply(() => this.changed(socket, this.rooms.removeCpu(this.guest(socket), this.data(socket).code, body?.seat)));
   }
 
   @SubscribeMessage(EVENTS.seat)
   seat(@ConnectedSocket() socket: Socket, @MessageBody() body: Body) {
-    return reply(() => this.rooms.takeSeat(this.guest(socket), this.data(socket).code, body?.seat));
+    return reply(() => this.changed(socket, this.rooms.takeSeat(this.guest(socket), this.data(socket).code, body?.seat)));
   }
 
   @SubscribeMessage(EVENTS.start)
   start(@ConnectedSocket() socket: Socket) {
-    return reply(() => this.rooms.start(this.guest(socket), this.data(socket).code));
+    return reply(() => this.changed(socket, this.rooms.start(this.guest(socket), this.data(socket).code)));
   }
 
   @SubscribeMessage(EVENTS.act)
   act(@ConnectedSocket() socket: Socket, @MessageBody() body: Body) {
-    return reply(() => this.rooms.act(this.guest(socket), this.data(socket).code, body?.action));
+    return reply(() => this.changed(socket, this.rooms.act(this.guest(socket), this.data(socket).code, body?.action)));
   }
 
   // A stick or button change in a real-time game. No reply: the next frame shows the result.
@@ -219,6 +221,13 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   }
 
   private data(socket: Socket): SocketData { return socket.data as SocketData; }
+
+  // The reply to a room change. Everyone in the room, this screen included, already gets the new room as an update,
+  // so a lean screen gets only its version; older screens still get the whole room.
+  private async changed(socket: Socket, work: Promise<RoomView>): Promise<RoomView | Lean> {
+    const view = await work;
+    return this.data(socket).lean ? { version: view.version } : view;
+  }
 
   private guest(socket: Socket): GuestRef {
     const { guest } = this.data(socket);

@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { io, type Socket } from "socket.io-client";
 import type { PresenceReport } from "@salone/games/online/admin";
 import { EVENTS, type Guest } from "@salone/games/online/protocol";
-import { serverUrl } from "@/online/useRoom";
+import { connectOptions, reconnectWhenBack, serverUrl } from "@/online/useRoom";
 
 // Tells the game server what this screen is showing, for the admin dashboard: the games shelf, a game's setup, or
 // a game being played. One connection is shared by every page and stays open while the visitor moves between them;
@@ -48,7 +48,8 @@ function send() {
 
 function connect() {
   if (socket) return;
-  socket = io(serverUrl(), { transports: ["websocket"], reconnectionDelayMax: 10000 });
+  socket = io(serverUrl(), connectOptions(10000));
+  reconnectWhenBack(socket);
   socket.on("connect", send);
   document.addEventListener("visibilitychange", send);
 }

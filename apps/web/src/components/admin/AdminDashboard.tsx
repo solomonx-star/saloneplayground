@@ -7,7 +7,7 @@ import type { DayStat, LiveView, StatsView, TrafficView } from "@salone/games/on
 import { REPORT_DAYS, REPORT_REASONS, type ChatReportView } from "@salone/games/online/chat";
 import { EVENTS, pageOfGame, type Reply } from "@salone/games/online/protocol";
 import { GAMES } from "@/components/games";
-import { serverUrl } from "@/online/useRoom";
+import { connectOptions, reconnectWhenBack, serverUrl } from "@/online/useRoom";
 
 // The admin dashboard: who is online and what they are playing, and play statistics over a chosen number of days.
 // It signs in to the game server with the ADMIN_TOKEN secret (kept for this browser tab only). The live view is
@@ -95,7 +95,8 @@ function Dashboard({ token, onSignOut }: { token: string; onSignOut: (error?: st
 
   // The live view, pushed by the game server.
   useEffect(() => {
-    const socket = io(serverUrl(), { transports: ["websocket"], reconnectionDelayMax: 5000 });
+    const socket = io(serverUrl(), connectOptions(5000));
+    const stopRetrying = reconnectWhenBack(socket);
     const show = (view: LiveView) => { setLive(view); setLiveAt(Date.now()); };
     socket.on("connect", async () => {
       const answer: Reply<LiveView> = await socket.emitWithAck(EVENTS.adminWatch, { token });
@@ -111,7 +112,7 @@ function Dashboard({ token, onSignOut }: { token: string; onSignOut: (error?: st
     socket.on(EVENTS.adminSessions, () => setStatsVersion((v) => v + 1));
     socket.on("disconnect", () => setConnected(false));
     socket.on("connect_error", () => setConnected(false));
-    return () => { socket.disconnect(); };
+    return () => { stopRetrying(); socket.disconnect(); };
   }, [token, onSignOut]);
 
   // Timers on show count up every second.
@@ -207,7 +208,7 @@ function TrafficSection({ traffic, onReset }: { traffic: TrafficView | null; onR
       <h2 id="traffic-title">Data use</h2>
       <button className="admin-ghost" onClick={onReset}>RESET</button>
     </div>
-    <p className="admin-muted">Since {when(traffic.since)} ({duration(traffic.seconds)}). Per player: what one device downloads (↓) and uploads (↑) for each minute it has the game open. Before compression.</p>
+    <p className="admin-muted">Since {when(traffic.since)} ({duration(traffic.seconds)}). Per player: what one device downloads (↓) and uploads (↑) for each minute it has the game open. These are the messages before the connection compresses them; what a phone actually downloads is much less (about 85% less for Touch, measured).</p>
     {games.length === 0 ? <p className="admin-muted">Nothing counted yet.</p> : <div className="admin-card"><div className="admin-table-wrap"><table className="admin-table">
       <thead><tr><th>Game</th><th className="num">Player-minutes</th><th className="num">↓ per minute</th><th className="num">↑ per minute</th><th className="num">↓ total</th><th>Biggest messages</th></tr></thead>
       <tbody>{games.map((g) => <tr key={g.game}>

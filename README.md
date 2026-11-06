@@ -21,6 +21,13 @@ The game server (for online play) needs a MongoDB database. Copy `apps/server/.e
 - Ludo can be played online too: choose **Online** in its PLAY menu. Before creating a room (or in the lobby, as host) choose 2–4 players and any of the six house rules; everyone else sees the rules but cannot change them. Friends join with the code and empty seats can go to computer players. The game server rolls the dice and runs the house rules, the Turn Timer and the computer players; every screen plays each roll and move back with the same animations as Ludo on one device, with players' names in their yards. If a player is away (disconnected) on their turn, the game plays for them after 30 seconds while someone else is still connected. When the game is won, PLAY AGAIN starts a rematch with the same settings.
 - Draft can be played online too: choose **Online** in its PLAY menu. Seat 1 plays Black (moves first, the Blackman Trouble Rule) and seat 2 White; each player sees the board from their own side. Turns are built by tapping, a capture chain one jump at a time with STOP HERE, and the server checks every turn against the Draft rules. HINT works online too. Like Tin Tan To (a thinking game), Draft waits for a player who drops out rather than playing for them. PLAY AGAIN starts a rematch.
 
+### Data use on mobile networks
+
+- Each WebSocket connection is compressed as a stream (permessage-deflate; settings in `apps/server/src/setup.ts`), so messages that repeat much of the previous one cost little. Measured with scripted players: Touch about 95 KB a minute per player on the wire (651 KB before compression), Snakes and Ladders about 30 KB, Draft about 12 KB, Ludo about 10 KB, Tin Tan To about 2 KB.
+- Screens say `lean: true` in their hello: a change they ask for is answered with only the room's version, since the room arrives as an update anyway. Screens without it (opened before an update) still get the whole room.
+- Screens fall back to plain HTTP requests where WebSockets are blocked, reconnect as soon as the device is back online or the screen is shown again, and heartbeats notice a dropped connection within about 20 seconds.
+- The admin dashboard's **Data use** section shows what each game sends and receives per player-minute (before compression), counted on the game server (`apps/server/src/traffic.service.ts`).
+
 ## Party play (version 2)
 
 - One shared screen (a TV or laptop) shows the game for everyone; each player plays on their own phone. In Ludo, Tin Tan To or Draft choose **Party (TV + phones)** in the PLAY menu and START A PARTY (for Ludo, choose the players and house rules first).

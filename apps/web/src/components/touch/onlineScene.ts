@@ -118,7 +118,8 @@ export function createOnlineTouchScene(Phaser: typeof PhaserNamespace, feed: Onl
       if (this.keys.RIGHT.isDown || this.keys.D.isDown) x += 1;
       if (this.keys.UP.isDown || this.keys.W.isDown) y -= 1;
       if (this.keys.DOWN.isDown || this.keys.S.isDown) y += 1;
-      x = Math.max(-1, Math.min(1, x)); y = Math.max(-1, Math.min(1, y));
+      // Two decimals is far finer than a thumb can hold steady, and keeps each message short on mobile data.
+      x = Math.round(Math.max(-1, Math.min(1, x)) * 100) / 100; y = Math.round(Math.max(-1, Math.min(1, y)) * 100) / 100;
       const sprint = this.keys.SHIFT.isDown || feed.input.current.sprint;
       const changed = Math.abs(x - this.sent.x) > 0.05 || Math.abs(y - this.sent.y) > 0.05 || sprint !== this.sent.sprint;
       const held = (x !== 0 || y !== 0 || sprint) && this.time.now - this.sent.at > RESEND_MS;
