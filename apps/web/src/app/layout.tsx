@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import AppUpdates from "@/components/AppUpdates";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -8,6 +9,6 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en"><body>{children}</body></html>
+    <html lang="en"><body>{children}<AppUpdates /></body></html>
   );
 }

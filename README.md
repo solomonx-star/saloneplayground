@@ -29,6 +29,13 @@ The game server (for online play) needs a MongoDB database. Copy `apps/server/.e
 - Strangers are not kept waiting: in a quick-match room, a player who drops out and is not back within the away time (`AWAY_SECONDS`, 30 by default) gives up their seat, to a computer player if the game has started.
 - Chat in quick-match rooms is the one-tap phrases and emoji only (checked on the server). Player names are filtered like chat everywhere.
 
+### The app on the phone (service worker)
+
+- After the first visit the app opens from the phone: `apps/web/public/sw.js` keeps the app's code and the pages a player has opened, so opening it again costs almost no data (measured: about 2 KB instead of the whole app). Games opened once can be played against the computer with no connection; online play still needs one.
+- Nothing is downloaded ahead of time (the whole app is about 790 KB compressed, a third of it Touch's game engine): each file is kept the first time it is used.
+- Pages still come from the network when it answers within 4 seconds, so players online always get the latest release. When a screen is on an older release (opened from the phone on a slow connection, or left open across a release) it shows **A new version is ready — RELOAD**. It compares the release it was built as (`NEXT_PUBLIC_APP_RELEASE`) with the `X-App-Version` header the site sends now, both set in `apps/web/next.config.ts` from the Git commit (`RAILWAY_GIT_COMMIT_SHA` on Railway).
+- The service worker runs in production builds only. Change `VERSION` in `sw.js` to make every phone drop what it has kept.
+
 ### Data use on mobile networks
 
 - Each WebSocket connection is compressed as a stream (permessage-deflate; settings in `apps/server/src/setup.ts`), so messages that repeat much of the previous one cost little. Measured with scripted players: Touch about 95 KB a minute per player on the wire (651 KB before compression), Snakes and Ladders about 30 KB, Draft about 12 KB, Ludo about 10 KB, Tin Tan To about 2 KB.
