@@ -32,7 +32,7 @@ export class AdminService {
   async live(): Promise<LiveView> {
     const people = this.presence.live();
     const rooms = await this.models.rooms
-      .find({ status: { $ne: "closed" }, updatedAt: { $gte: new Date(Date.now() - LIVE_ROOM_MS) } }, { game: 1, status: 1, party: 1, seats: 1, updatedAt: 1 })
+      .find({ status: { $ne: "closed" }, updatedAt: { $gte: new Date(Date.now() - LIVE_ROOM_MS) } }, { game: 1, status: 1, party: 1, public: 1, seats: 1, updatedAt: 1 })
       .sort({ updatedAt: -1 }).limit(50).lean();
     return {
       at: new Date().toISOString(),
@@ -44,6 +44,7 @@ export class AdminService {
         game: r.game,
         status: r.status,
         party: !!r.party,
+        public: !!r.public,
         people: r.seats.filter((s) => !s.cpu && s.guestId).length,
         computers: r.seats.filter((s) => s.cpu).length,
         updatedAt: r.updatedAt.toISOString(),

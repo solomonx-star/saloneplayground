@@ -34,7 +34,7 @@ export type LivePerson = {
   screens: number;
 };
 
-export type LiveRoom = { code: string; game: string; status: string; party: boolean; people: number; computers: number; updatedAt: string };
+export type LiveRoom = { code: string; game: string; status: string; party: boolean; public: boolean; people: number; computers: number; updatedAt: string };
 
 export type LiveView = { at: string; online: number; playing: number; people: LivePerson[]; rooms: LiveRoom[] };
 

@@ -9,7 +9,7 @@ import { LEVELS, TOUCH, type Level } from "@salone/games/touch/settings";
 import Joystick from "@/components/Joystick";
 import { MUTED_KEY, readFlag, writeFlag } from "@/components/preferences";
 import { gameSound as sound } from "@/components/sound";
-import { OnlineEntry, OnlineNotices, RoomCode } from "@/online/OnlineEntry";
+import { OnlineEntry, OnlineNotices, QuickMatchStatus, RoomCode } from "@/online/OnlineEntry";
 import { RoomChat } from "@/online/RoomChat";
 import { PartyJoin, PartyStart } from "@/online/PartyJoin";
 import { useRoom, type OnlineMode, type OnlineRoom } from "@/online/useRoom";
@@ -59,7 +59,7 @@ export default function TouchOnline({ onBack, onLocal, mode = "online", joinCode
           ? <PartyStart title="Touch on the big screen." blurb="This screen shows the field. Players join on their phones by scanning the code, pick Blue or Orange, and use their phone as the controller. The computer plays everyone else."
             connection={online.connection} onStart={() => void online.create("Party screen", undefined, true)} onLocal={onLocal} />
           : <OnlineEntry title={joinCode ? "Join the game." : "Play Touch with friends anywhere."} blurb={joinCode ? "Enter your name to join a team. Your phone is your controller while the big screen shows the field." : "Create a room and share its four-letter code, or join a friend's room with theirs. Each person controls one player; the computer plays the rest of both teams."}
-            joinCode={joinCode} connection={online.connection} onCreate={(name) => void online.create(name)} onJoin={(name, code) => void online.join(name, code)} onLocal={onLocal} />
+            joinCode={joinCode} connection={online.connection} onQuick={(name) => void online.quick(name)} onCreate={(name) => void online.create(name)} onJoin={(name, code) => void online.join(name, code)} onLocal={onLocal} />
         : <Lobby room={room} me={me} online={online} />}
     </section>
     {room && <RoomChat room={room} me={me} online={online} placement="top" />}
@@ -69,12 +69,15 @@ export default function TouchOnline({ onBack, onLocal, mode = "online", joinCode
 // The room before the match: how to join, the two teams, and (for the host) the team size, the computer level and Start.
 function Lobby({ room, me, online }: { room: Room; me: string; online: Online }) {
   const leaveRoom = useLeaveRoom(online.leave);
-  const host = room.hostId === me;
+  // Nobody hosts a quick-match room: it has standard settings and starts on its own.
+  const host = room.hostId === me && !room.public;
   const mySeat = room.seats.findIndex((s) => s.guestId === me);
   const { count, level } = room.options;
   const anyone = room.seats.some((s) => s.guestId);
   return <div className="online-panel">
-    {room.party && host ? <PartyJoin code={room.code} game="touch" /> : <RoomCode code={room.code} />}
+    {room.public
+      ? <QuickMatchStatus room={room} me={me} receivedAt={online.receivedAt} onPlayComputer={() => void online.start()} />
+      : room.party && host ? <PartyJoin code={room.code} game="touch" /> : <RoomCode code={room.code} />}
     <div className="touch-teams">
       {TEAMS.map((team, t) => {
         const seats = room.seats.map((seat, i) => ({ seat, i })).filter(({ i }) => teamOfSeat(i) === t);
@@ -84,7 +87,7 @@ function Lobby({ room, me, online }: { room: Room; me: string; online: Online })
           <h3><span className={`online-mark touch-mark team-${t}`} aria-hidden="true" />{team.toUpperCase()}<small>{t === 0 ? "ATTACKS FIRST" : "DEFENDS FIRST"}</small></h3>
           <ol className="online-seats">
             {seats.filter(({ seat }) => seat.guestId).map(({ seat, i }) => <li key={i} className="taken">
-              <span className="online-seat-name">{seat.name}{seat.guestId === me ? " (you)" : ""}{seat.guestId === room.hostId ? " · host" : ""}{!seat.connected ? " · away" : ""}</span>
+              <span className="online-seat-name">{seat.name}{seat.guestId === me ? " (you)" : ""}{!room.public && seat.guestId === room.hostId ? " · host" : ""}{!seat.connected ? " · away" : ""}</span>
             </li>)}
             <li><span className="online-seat-name"><small>{count - people > 0 ? `+ ${count - people} COMPUTER PLAYER${count - people === 1 ? "" : "S"}` : "NO COMPUTER PLAYERS"}</small></span></li>
           </ol>
@@ -100,7 +103,7 @@ function Lobby({ room, me, online }: { room: Room; me: string; online: Online })
       </div>
       <div className="draft-buttons">
         <button onClick={() => leaveRoom({ endsParty: room.party && host })}>{room.party && host ? "END PARTY" : "LEAVE ROOM"}</button>
-        {host ? <button className="draft-stop" disabled={!anyone} onClick={() => void online.start()}>START MATCH</button> : <span className="draft-turn">WAITING FOR THE HOST TO START</span>}
+        {host ? <button className="draft-stop" disabled={!anyone} onClick={() => void online.start()}>START MATCH</button> : !room.public && <span className="draft-turn">WAITING FOR THE HOST TO START</span>}
       </div>
     </div>
   </div>;

@@ -21,6 +21,12 @@ export type RoomView<M = unknown, O = unknown> = {
   // Party play: the host is a shared screen (a TV or laptop) that shows the board and runs the room without a seat;
   // the players use their phones.
   party: boolean;
+  // Quick match: a public room that strangers are matched into (see QUICK_START_SECONDS). It has no host settings,
+  // and its chat is quick phrases and emoji only.
+  public?: boolean;
+  // A public lobby with two or more players waiting: the milliseconds left (when this view was sent) before the game
+  // starts with computer players in the empty seats. Null otherwise.
+  startsIn?: number | null;
   // The settings the host chose in the lobby (for Ludo: the number of players and the house rules).
   options: O;
   match: M | null;
@@ -43,6 +49,9 @@ export type Reply<T> = { ok: true; value: T } | { ok: false; error: string };
 export const EVENTS = {
   hello: "guest:hello",
   create: "room:create",
+  // Quick match: puts the guest in a public room of the game, joining one that is waiting for players or opening a
+  // new one. Answers with the room, like create and join.
+  quick: "room:quick",
   join: "room:join",
   leave: "room:leave",
   options: "room:options",
@@ -73,6 +82,13 @@ export const EVENTS = {
   // A chat report came in or was dismissed: the dashboard reads the reports again.
   adminReports: "admin:reports",
 } as const;
+
+// Quick match. A public room of a turn-based game starts as soon as every seat is filled, or this many seconds after
+// a second player arrives, with computer players in the seats still empty. A public Touch match starts at once (the
+// computer plays every free seat) and people join it while it runs.
+export const QUICK_START_SECONDS = 20;
+// After this long alone in a public room, a player is offered a game against the computer instead.
+export const QUICK_ALONE_SECONDS = 60;
 
 // Room codes are four capital letters, leaving out I and O so they cannot be mistaken for 1 and 0.
 export const CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";

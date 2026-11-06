@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import {
-  CHAT_BURST, CHAT_HISTORY, CHAT_WINDOW_MS, cleanChat, filterChat, isReportReason, REPORT_MESSAGES, reportsToBlock,
+  CHAT_BURST, CHAT_HISTORY, CHAT_WINDOW_MS, cleanChat, filterChat, isQuickMessage, isReportReason, REPORT_MESSAGES, reportsToBlock,
   type ChatMessage, type ChatReportView, type ChatState,
 } from "@salone/games/online/chat";
 import type { GameId } from "@salone/games/online/protocol";
@@ -32,11 +32,13 @@ export class ChatService {
   // Called when a report comes in or is dismissed, so watching admin dashboards can read the reports again.
   onReports(listener: () => void) { this.reportListeners.push(listener); }
 
-  post(code: string, sender: GuestRef, text: unknown, now = Date.now()): ChatMessage {
+  // `quickOnly`: a quick-match room, where only the one-tap phrases and emoji can be sent.
+  post(code: string, sender: GuestRef, text: unknown, quickOnly = false, now = Date.now()): ChatMessage {
     const chat = this.room(code);
     if (chat.blocked.has(sender.guestId)) throw new RoomError("You can no longer chat in this room: other players reported your messages.");
     const clean = cleanChat(text);
     if (!clean) throw new RoomError("Type a message first.");
+    if (quickOnly && !isQuickMessage(clean)) throw new RoomError("In quick-match rooms you can send the quick phrases and emoji only.");
     const key = `${code}:${sender.guestId}`;
     const recent = (this.sent.get(key) ?? []).filter((at) => now - at < CHAT_WINDOW_MS);
     if (recent.length >= CHAT_BURST) throw new RoomError("Slow down — wait a few seconds before sending another message.");

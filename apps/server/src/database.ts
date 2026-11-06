@@ -24,6 +24,8 @@ export type RoomDoc = {
   status: RoomStatus;
   // Party play: the host is a shared screen with no seat.
   party: boolean;
+  // Quick match: a public room strangers are matched into.
+  public: boolean;
   // The settings the host chose in the lobby (for Ludo: the number of players and the house rules).
   options: unknown;
   match: unknown;
@@ -68,6 +70,7 @@ const rooms = new Schema<RoomDoc>({
   seats: [seat],
   status: String,
   party: { type: Boolean, default: false },
+  public: { type: Boolean, default: false },
   options: { type: Schema.Types.Mixed, default: {} },
   match: { type: Schema.Types.Mixed, default: null },
   version: Number,

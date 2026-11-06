@@ -626,6 +626,104 @@ describe("Touch rooms", () => {
   });
 });
 
+describe("quick match", () => {
+  type SnakesView = RoomView<SnakesMatch>;
+
+  it("puts strangers in one public room with standard settings, then starts with computers after the countdown", async () => {
+    const a = await connect("Fatu");
+    const b = await connect("Ibrahim");
+    const room = await call<SnakesView>(a.socket, EVENTS.quick, { game: "snakes" });
+    expect(room).toMatchObject({ public: true, party: false, status: "lobby", startsIn: null });
+    expect(room.seats).toHaveLength(4);
+    expect(room.seats[0].guestId).toBe(a.guest.guestId);
+    // Nobody hosts a quick-match room: its settings stay standard.
+    expect(await refused(a.socket, EVENTS.options, { options: { players: 2 } })).toMatch(/Quick-match/);
+    expect(await refused(a.socket, EVENTS.addCpu, { seat: 1, level: "easy" })).toMatch(/Quick-match/);
+
+    const joined = await call<SnakesView>(b.socket, EVENTS.quick, { game: "snakes" });
+    expect(joined.code).toBe(room.code);
+    expect(joined.startsIn).toBeGreaterThan(0);
+    expect(await refused(a.socket, EVENTS.start)).toMatch(/countdown/);
+    const started = await until<SnakesView>(a.updates, (v) => v.status === "playing");
+    expect(started.seats.map((s) => s.cpu)).toEqual([false, false, true, true]);
+    expect(started.startsIn).toBeNull();
+
+    // A room that has started is no longer offered: the next person gets a new one.
+    const c = await connect("Late");
+    const next = await call<SnakesView>(c.socket, EVENTS.quick, { game: "snakes" });
+    expect(next.code).not.toBe(room.code);
+    for (const screen of [a, b, c]) await call(screen.socket, EVENTS.leave);
+  });
+
+  it("starts a two-player game once both seats are filled, and lets someone alone play the computer instead", async () => {
+    const a = await connect("Sia");
+    const b = await connect("Mohamed");
+    const room = await call<RoomView<Match>>(a.socket, EVENTS.quick, { game: "tintanto" });
+    const full = await call<RoomView<Match>>(b.socket, EVENTS.quick, { game: "tintanto" });
+    expect(full.code).toBe(room.code);
+    expect(full.status).toBe("playing");
+
+    const alone = await connect("Alone");
+    const own = await call<RoomView<Match>>(alone.socket, EVENTS.quick, { game: "tintanto" });
+    expect(own.code).not.toBe(room.code);
+    // Pressing Quick match again goes back to the same room.
+    expect((await call<RoomView<Match>>(alone.socket, EVENTS.quick, { game: "tintanto" })).code).toBe(own.code);
+    await call(alone.socket, EVENTS.start);
+    const solo = await until(alone.updates, (v) => v.code === own.code && v.status === "playing");
+    expect(solo.seats[1]).toMatchObject({ cpu: true, level: "normal" });
+    for (const screen of [a, b, alone]) await call(screen.socket, EVENTS.leave);
+  });
+
+  it("gives up the seat of a player who drops out and does not come back", async () => {
+    const a = await connect("Stays");
+    const b = await connect("Drops");
+    await call(a.socket, EVENTS.quick, { game: "draft" });
+    const room = await call<RoomView<DraftMatch>>(b.socket, EVENTS.quick, { game: "draft" });
+    expect(room.status).toBe("playing");
+    b.socket.disconnect();
+    // Mid-game a computer player takes the seat over (Draft would otherwise wait for them for ever).
+    const taken = await until<RoomView<DraftMatch>>(a.updates, (v) => v.seats[1].cpu);
+    expect(taken.seats[1].name).toBe("Drops (CPU)");
+    await call(a.socket, EVENTS.leave);
+
+    // In the lobby the seat is freed, and a room nobody is left in closes.
+    const c = await connect("Waits");
+    const lobby = await call<RoomView<LudoMatch>>(c.socket, EVENTS.quick, { game: "ludo" });
+    c.socket.disconnect();
+    await new Promise((r) => setTimeout(r, 600));
+    const d = await connect("Next");
+    const fresh = await call<RoomView<LudoMatch>>(d.socket, EVENTS.quick, { game: "ludo" });
+    expect(fresh.code).not.toBe(lobby.code);
+    expect(fresh.seats.filter((s) => s.guestId)).toHaveLength(1);
+    await call(d.socket, EVENTS.leave);
+  });
+
+  it("starts a public Touch match at once and brings the next person into its free seats", async () => {
+    const a = await connect("Runner");
+    const b = await connect("Chaser");
+    const room = await call<RoomView<TouchSummary>>(a.socket, EVENTS.quick, { game: "touch" });
+    expect(room).toMatchObject({ public: true, status: "playing" });
+    const joined = await call<RoomView<TouchSummary>>(b.socket, EVENTS.quick, { game: "touch" });
+    expect(joined.code).toBe(room.code);
+    expect(joined.seats[1].guestId).toBe(b.guest.guestId);
+    for (const screen of [a, b]) await call(screen.socket, EVENTS.leave);
+  });
+
+  it("allows only the quick phrases and emoji in a quick-match room's chat", async () => {
+    const a = await connect("Chatty");
+    await call(a.socket, EVENTS.quick, { game: "snakes" });
+    expect(await refused(a.socket, EVENTS.chatSend, { text: "where do you live" })).toMatch(/quick phrases/);
+    expect((await call<ChatMessage>(a.socket, EVENTS.chatSend, { text: "Good luck!" })).text).toBe("Good luck!");
+    expect((await call<ChatMessage>(a.socket, EVENTS.chatSend, { text: "👍" })).text).toBe("👍");
+    await call(a.socket, EVENTS.leave);
+  });
+
+  it("filters players' names like chat", async () => {
+    expect((await connect("shit head")).guest.name).toBe("**** head");
+    expect((await connect("Kadiatu")).guest.name).toBe("Kadiatu");
+  });
+});
+
 describe("allowed web addresses", () => {
   it("reads WEB_ORIGIN as a list, and allows any address when it is not set", () => {
     expect(parseOrigins(" https://play.example.com/, https://x.up.railway.app ")).toEqual(["https://play.example.com", "https://x.up.railway.app"]);

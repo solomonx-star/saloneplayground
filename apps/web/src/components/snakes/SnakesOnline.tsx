@@ -9,7 +9,7 @@ import SnakesBoard from "@/components/snakes/SnakesBoard";
 import SnakesRuleChips from "@/components/snakes/SnakesRuleChips";
 import { describe } from "@/components/snakes/describe";
 import { usePlayback } from "@/components/snakes/usePlayback";
-import { OnlineEntry, OnlineNotices, RoomCode } from "@/online/OnlineEntry";
+import { OnlineEntry, OnlineNotices, QuickMatchStatus, RoomCode } from "@/online/OnlineEntry";
 import { PartyJoin, PartyStart } from "@/online/PartyJoin";
 import { RoomChat } from "@/online/RoomChat";
 import { useRoom, type OnlineMode, type OnlineRoom } from "@/online/useRoom";
@@ -65,7 +65,7 @@ export default function SnakesOnline({ onBack, onLocal, mode = "online", joinCod
             ? <OnlineEntry title="Join the game." blurb="Enter your name to take a seat. You will roll on this phone while the big screen shows the board."
               joinCode={joinCode} connection={online.connection} onCreate={() => undefined} onJoin={(name, code) => void online.join(name, code)} onLocal={onLocal} />
             : <OnlineEntry title="Snakes and Ladders with friends anywhere." blurb="Choose the players and house rules, create a room and share its code — or join a friend's room with theirs. No sign-up, just a name."
-              connection={online.connection} onCreate={(name) => void online.create(name, setup)} onJoin={(name, code) => void online.join(name, code)} onLocal={onLocal}>
+              connection={online.connection} onQuick={(name) => void online.quick(name)} onCreate={(name) => void online.create(name, setup)} onJoin={(name, code) => void online.join(name, code)} onLocal={onLocal}>
               <Players value={setup.players} onChange={(players) => setSetup({ ...setup, players })} />
               <SnakesRuleChips rules={setup.rules} onToggle={toggleSetup} />
             </OnlineEntry>
@@ -85,16 +85,19 @@ function Players({ value, onChange }: { value: number; onChange?: (players: numb
 // rules, computer players and Start.
 function Lobby({ room, me, online }: { room: Room; me: string; online: Online }) {
   const leaveRoom = useLeaveRoom(online.leave);
-  const host = room.hostId === me;
+  // Nobody hosts a quick-match room: it has standard settings and starts on its own.
+  const host = room.hostId === me && !room.public;
   const full = room.seats.every((s) => s.guestId || s.cpu);
   const toggle = (rule: Rule) => void online.setOptions({ rules: { ...room.options.rules, [rule]: !room.options.rules[rule] } });
   return <div className="online-panel">
-    {room.party && host ? <PartyJoin code={room.code} game="snakes" /> : <RoomCode code={room.code} />}
+    {room.public
+      ? <QuickMatchStatus room={room} me={me} receivedAt={online.receivedAt} onPlayComputer={() => void online.start()} />
+      : room.party && host ? <PartyJoin code={room.code} game="snakes" /> : <RoomCode code={room.code} />}
     <ol className="online-seats">
       {room.seats.map((seat, i) => <li key={i} className={seat.guestId || seat.cpu ? "taken" : ""}>
         <span className="online-mark" style={{ background: COLOUR_HEX[colourOf(i)].fill, borderColor: "#fff" }} aria-hidden="true" />
         <span className="online-seat-name">
-          {seat.guestId ? <>{seat.name}{seat.guestId === me ? " (you)" : ""}{seat.guestId === room.hostId ? " · host" : ""}{!seat.connected ? " · away" : ""}</> : seat.cpu ? seat.name : "Waiting for a player…"}
+          {seat.guestId ? <>{seat.name}{seat.guestId === me ? " (you)" : ""}{!room.public && seat.guestId === room.hostId ? " · host" : ""}{!seat.connected ? " · away" : ""}</> : seat.cpu ? seat.name : "Waiting for a player…"}
           <small>PLAYER {i + 1} · {colourOf(i).toUpperCase()}</small>
         </span>
         {host && !seat.guestId && !seat.cpu && <button onClick={() => void online.addCpu(i, "normal")}>ADD COMPUTER</button>}
@@ -107,7 +110,7 @@ function Lobby({ room, me, online }: { room: Room; me: string; online: Online })
       <div className="draft-buttons" />
       <div className="draft-buttons">
         <button onClick={() => leaveRoom({ endsParty: room.party && host })}>{room.party && host ? "END PARTY" : "LEAVE ROOM"}</button>
-        {host ? <button className="draft-stop" disabled={!full} onClick={() => void online.start()}>START GAME</button> : <span className="draft-turn">WAITING FOR THE HOST TO START</span>}
+        {host ? <button className="draft-stop" disabled={!full} onClick={() => void online.start()}>START GAME</button> : !room.public && <span className="draft-turn">WAITING FOR THE HOST TO START</span>}
       </div>
     </div>
   </div>;

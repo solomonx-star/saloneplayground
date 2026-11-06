@@ -21,6 +21,14 @@ The game server (for online play) needs a MongoDB database. Copy `apps/server/.e
 - Ludo can be played online too: choose **Online** in its PLAY menu. Before creating a room (or in the lobby, as host) choose 2–4 players and any of the six house rules; everyone else sees the rules but cannot change them. Friends join with the code and empty seats can go to computer players. The game server rolls the dice and runs the house rules, the Turn Timer and the computer players; every screen plays each roll and move back with the same animations as Ludo on one device, with players' names in their yards. If a player is away (disconnected) on their turn, the game plays for them after 30 seconds while someone else is still connected. When the game is won, PLAY AGAIN starts a rematch with the same settings.
 - Draft can be played online too: choose **Online** in its PLAY menu. Seat 1 plays Black (moves first, the Blackman Trouble Rule) and seat 2 White; each player sees the board from their own side. Turns are built by tapping, a capture chain one jump at a time with STOP HERE, and the server checks every turn against the Draft rules. HINT works online too. Like Tin Tan To (a thinking game), Draft waits for a player who drops out rather than playing for them. PLAY AGAIN starts a rematch.
 
+### Quick match
+
+- Every online game has **QUICK MATCH** on its way in: play with whoever is online now, without a room code. The server puts the player in a public room of that game (the fullest one waiting) or opens a new one. Quick-match rooms always use the game's standard settings and nobody hosts them.
+- Ludo, Snakes and Ladders, Tin Tan To and Draft start as soon as every seat is filled, or 20 seconds after a second player arrives, with computer players in the seats still empty (`QUICK_START_SECONDS` in `packages/games/src/online/protocol.ts`). Someone waiting alone for a minute is offered PLAY THE COMPUTER.
+- Touch: quick match joins a public match with a free seat, or starts a new one at once (the computer plays every free seat).
+- Strangers are not kept waiting: in a quick-match room, a player who drops out and is not back within the away time (`AWAY_SECONDS`, 30 by default) gives up their seat, to a computer player if the game has started.
+- Chat in quick-match rooms is the one-tap phrases and emoji only (checked on the server). Player names are filtered like chat everywhere.
+
 ### Data use on mobile networks
 
 - Each WebSocket connection is compressed as a stream (permessage-deflate; settings in `apps/server/src/setup.ts`), so messages that repeat much of the previous one cost little. Measured with scripted players: Touch about 95 KB a minute per player on the wire (651 KB before compression), Snakes and Ladders about 30 KB, Draft about 12 KB, Ludo about 10 KB, Tin Tan To about 2 KB.

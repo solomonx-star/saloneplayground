@@ -176,6 +176,8 @@ export function useRoom<M, O = unknown>(game: GameId, joinCode?: string) {
     error,
     clearError: () => setError(""),
     async create(name: string, options?: O, party = false) { if (await rename(name)) show(await request<RoomView<M, O>>(EVENTS.create, { game, options, party })); },
+    // Quick match: a public room of this game with whoever is online now (see QUICK_START_SECONDS).
+    async quick(name: string) { if (await rename(name)) show(await request<RoomView<M, O>>(EVENTS.quick, { game })); },
     async join(name: string, code: string) { if (await rename(name)) show(await request<RoomView<M, O>>(EVENTS.join, { code })); },
     async leave() { await request(EVENTS.leave); write(roomKey(game), null); lastFrame.current = null; setChat([]); setBlocked([]); setRoom(null); },
     chat,

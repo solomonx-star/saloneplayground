@@ -6,6 +6,8 @@
 // Anyone can mute another player on their own screen. A report goes to the admin dashboard, and once enough
 // different people in the room have reported the same player (reportsToBlock) that player cannot chat there again.
 
+import { cleanName } from "./protocol";
+
 export const MAX_CHAT = 140;
 // How many recent messages the server keeps per room, for a screen that reloads or joins late.
 export const CHAT_HISTORY = 50;
@@ -16,6 +18,8 @@ export const CHAT_WINDOW_MS = 10_000;
 // One-tap messages: quick to send on a phone mid-game.
 export const QUICK_PHRASES = ["Good luck!", "Good move!", "Nice one!", "Your turn!", "Hurry up!", "Oops!", "Well played!", "Rematch?"] as const;
 export const QUICK_EMOJI = ["👍", "😂", "👏", "🔥", "😮", "🎉"] as const;
+// Quick-match rooms put strangers together, so their chat is these one-tap messages only (checked on the server).
+export const isQuickMessage = (text: string) => (QUICK_PHRASES as readonly string[]).includes(text) || (QUICK_EMOJI as readonly string[]).includes(text);
 
 // A message from a player, or from the room itself (`system`, with no guestId), such as a player being blocked.
 export type ChatMessage = { id: number; guestId: string; name: string; text: string; at: number; system?: boolean };
@@ -89,6 +93,11 @@ function blocked(word: string) {
 const EMAIL = /[^\s@]+@[^\s@]+\.[a-z]{2,}/gi;
 const LINK = /\b(?:https?:\/\/|www\.)\S+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|app|me|ly|gg|tv|co|sl|uk|info|xyz|link)\b(?:\/\S*)?/gi;
 const PHONE = /\+?\d[\d\s().-]{5,}\d/g;
+
+// A player's name, tidied (cleanName) and filtered like a chat message, since everyone in a room sees it.
+export function filterName(name: unknown): string {
+  return cleanName(filterChat(cleanName(name)));
+}
 
 // Hides blocked words (as asterisks) and contact details in a cleaned message.
 export function filterChat(text: string): string {

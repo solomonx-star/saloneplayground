@@ -1,7 +1,7 @@
 import { randomInt } from "node:crypto";
 import { Inject, Injectable, type OnApplicationShutdown } from "@nestjs/common";
 import { isGameId, ONLINE_GAMES } from "@salone/games/online/games";
-import { CODE_LETTERS, ROOM_CODE, type RoomView } from "@salone/games/online/protocol";
+import { CODE_LETTERS, QUICK_START_SECONDS, ROOM_CODE, type RoomView } from "@salone/games/online/protocol";
 import type { TouchAction, TouchFrame, TouchOptions, TouchSummary } from "@salone/games/touch/online";
 import { CONFIG, type Config } from "./config";
 import { MODELS, type Models, type RoomDoc, type SeatDoc } from "./database";
@@ -17,7 +17,12 @@ type Deadline = { seat: number; at: number; reason: "timeout" | "away" };
 // A room as the server holds it while it is in use: the saved room plus each guest's open connections (a guest may
 // have the room open on more than one tab or device), a queue so its changes happen one at a time, and the timer for
 // the next thing the server does by itself (a computer player's move, or playing for someone out of time or away).
-type LiveRoom = RoomDoc & { connections: Map<string, Set<string>>; queue: Promise<unknown>; turnTimer?: NodeJS.Timeout; deadline?: Deadline | null };
+// A quick-match room also has its countdown to the start (`startsAt`, `startTimer`) and, for each player who has
+// dropped out, the timer that gives their seat up if they do not come back (`awayTimers`).
+type LiveRoom = RoomDoc & {
+  connections: Map<string, Set<string>>; queue: Promise<unknown>; turnTimer?: NodeJS.Timeout; deadline?: Deadline | null;
+  startsAt?: number | null; startTimer?: NodeJS.Timeout; awayTimers?: Map<string, NodeJS.Timeout>;
+};
 
 const emptySeat = (): SeatDoc => ({ guestId: null, name: "", cpu: false, level: "normal" });
 
@@ -64,6 +69,8 @@ export class RoomsService implements OnApplicationShutdown {
       seats: room.seats.map((s) => ({ ...s, connected: s.cpu || this.connected(room, s.guestId) })),
       status: room.status,
       party: room.party,
+      public: room.public,
+      startsIn: room.startsAt ? Math.max(0, room.startsAt - Date.now()) : null,
       options: room.options,
       match: room.match,
       timer: deadline ? { seat: deadline.seat, endsIn: Math.max(0, deadline.at - Date.now()), reason: deadline.reason } : null,
@@ -73,21 +80,46 @@ export class RoomsService implements OnApplicationShutdown {
 
   // A room for online play has its host in the first seat. A party room's host is the shared screen, which takes no
   // seat: every seat is for the players' phones (or computer players).
-  async create(guest: GuestRef, game: unknown, options: unknown, party: unknown, connection: string): Promise<RoomView> {
+  // A quick-match room (`isPublic`) always has the game's standard settings.
+  async create(guest: GuestRef, game: unknown, options: unknown, party: unknown, connection: string, isPublic = false): Promise<RoomView> {
     if (!isGameId(game)) throw new RoomError("That game cannot be played online yet.");
     const rules = ONLINE_GAMES[game];
-    const chosen = rules.options(options, rules.defaultOptions);
+    const chosen = isPublic ? rules.defaultOptions : rules.options(options, rules.defaultOptions);
     const code = await this.freeCode();
     const now = new Date();
     const seats = Array.from({ length: rules.seats(chosen) }, emptySeat);
-    if (party !== true) seats[0] = { guestId: guest.guestId, name: guest.name, cpu: false, level: "normal" };
+    if (party !== true || isPublic) seats[0] = { guestId: guest.guestId, name: guest.name, cpu: false, level: "normal" };
     const room: LiveRoom = {
-      _id: code, game, hostId: guest.guestId, seats, status: "lobby", party: party === true, options: chosen, match: null, version: 0,
+      _id: code, game, hostId: guest.guestId, seats, status: "lobby", party: party === true && !isPublic, public: isPublic, options: chosen, match: null, version: 0,
       createdAt: now, updatedAt: now, expiresAt: now, connections: new Map([[guest.guestId, new Set([connection])]]), queue: Promise.resolve(),
     };
     this.live.set(code, room);
     await this.save(room);
     return this.view(room);
+  }
+
+  // Quick match: puts the guest in a public room of the game. They go back to one they already have a seat in, or
+  // join the fullest one waiting for players (a turn-based game's lobby, or a Touch match with a free seat), or open
+  // a new one. A new Touch match starts at once: the computer plays every seat nobody has taken.
+  async quick(guest: GuestRef, game: unknown, connection: string): Promise<RoomView> {
+    if (!isGameId(game)) throw new RoomError("That game cannot be played online yet.");
+    const tried = new Set<string>();
+    for (let room = this.openPublic(game, guest.guestId, tried); room; room = this.openPublic(game, guest.guestId, tried)) {
+      tried.add(room._id);
+      try {
+        return await this.join(guest, room._id, connection);
+      } catch (error) {
+        // Filled up or started a moment ago: try the next one.
+        if (!(error instanceof RoomError)) throw error;
+      }
+    }
+    const created = await this.create(guest, game, undefined, false, connection, true);
+    if (!ONLINE_GAMES[game].realtime) return created;
+    return this.run(created.code, async (room) => {
+      this.begin(room);
+      await this.save(room);
+      return this.view(room);
+    });
   }
 
   // Takes the guest to their seat: the one they already have, or the first free seat while the room is in its lobby.
@@ -110,6 +142,8 @@ export class RoomsService implements OnApplicationShutdown {
       }
       room.seats[seat] = { ...room.seats[seat], guestId: guest.guestId, name: guest.name };
       room.connections.set(guest.guestId, (room.connections.get(guest.guestId) ?? new Set()).add(connection));
+      this.stopAwayTimer(room, guest.guestId);
+      this.quickCheck(room);
       this.scheduleTurn(room);
       this.syncPeople(room);
       await this.save(room);
@@ -123,19 +157,7 @@ export class RoomsService implements OnApplicationShutdown {
   leave(guest: GuestRef, code: unknown): Promise<void> {
     return this.run(code, async (room) => {
       if (room.party && room.hostId === guest.guestId) { await this.close(room); return; }
-      const seat = room.seats.findIndex((s) => s.guestId === guest.guestId);
-      room.connections.delete(guest.guestId);
-      if (seat >= 0) {
-        // In a real-time game the computer plays every free seat anyway, so the seat stays open for someone new.
-        const freed = room.status === "lobby" || ONLINE_GAMES[room.game].realtime;
-        room.seats[seat] = freed ? emptySeat() : { guestId: null, name: `${room.seats[seat].name} (CPU)`, cpu: true, level: "normal" };
-      }
-      const humans = room.seats.filter((s) => s.guestId);
-      if (!humans.length && !room.party) { await this.close(room); return; }
-      if (room.hostId === guest.guestId) room.hostId = humans[0].guestId!;
-      this.scheduleTurn(room);
-      this.syncPeople(room);
-      await this.save(room);
+      await this.removeGuest(room, guest.guestId);
     });
   }
 
@@ -145,7 +167,10 @@ export class RoomsService implements OnApplicationShutdown {
     return this.run(code, (room) => {
       const open = room.connections.get(guestId);
       open?.delete(connection);
-      if (!open?.size) room.connections.delete(guestId);
+      if (!open?.size) {
+        room.connections.delete(guestId);
+        this.startAwayTimer(room, guestId);
+      }
       this.scheduleTurn(room);
       this.syncPeople(room);
       this.emit(room);
@@ -193,22 +218,32 @@ export class RoomsService implements OnApplicationShutdown {
     });
   }
 
+  // In a quick-match room nobody hosts: a player waiting there alone can start against the computer instead
+  // (computer players take the empty seats); once others have arrived the countdown starts the game.
   start(guest: GuestRef, code: unknown): Promise<RoomView> {
     return this.run(code, async (room) => {
+      if (room.public) {
+        if (room.status !== "lobby") throw new RoomError("The game has already started.");
+        if (!room.seats.some((s) => s.guestId === guest.guestId)) throw new RoomError("You do not have a seat in this room.");
+        if (room.seats.filter((s) => s.guestId).length > 1) throw new RoomError("Other players are here: the game starts on its own when the countdown ends.");
+        this.fillWithComputers(room);
+        this.begin(room);
+        await this.save(room);
+        return this.view(room);
+      }
       this.hostInLobby(room, guest);
       const game = ONLINE_GAMES[room.game];
       if (game.realtime) {
         if (!room.seats.some((s) => s.guestId)) throw new RoomError("At least one player needs a seat before starting.");
       } else if (room.seats.some((s) => !s.guestId && !s.cpu)) throw new RoomError("Fill every seat (with a friend or a computer player) before starting.");
-      room.status = "playing";
-      room.match = game.start(room.options);
-      if (game.realtime) this.touch.open(room._id, room.options as TouchOptions, null);
-      this.syncPeople(room);
-      this.scheduleTurn(room);
+      this.begin(room);
       await this.save(room);
       return this.view(room);
     });
   }
+
+  // Whether a room in use is a quick-match room (its chat is quick phrases and emoji only).
+  isPublic(code: string | undefined) { return !!(code && this.live.get(code)?.public); }
 
   // A move or other game action from a guest, checked by the game's rules. A party room's shared screen has no seat
   // (seat -1): the game only lets it do what needs no seat, such as starting the next round.
@@ -280,13 +315,111 @@ export class RoomsService implements OnApplicationShutdown {
   }
 
   onApplicationShutdown() {
-    for (const room of this.live.values()) clearTimeout(room.turnTimer);
+    for (const room of this.live.values()) this.stopTimers(room);
     this.touch.closeAll();
   }
 
   // ---- Inside ----
 
   private connected(room: LiveRoom, guestId: string | null) { return !!guestId && !!room.connections.get(guestId)?.size; }
+
+  // Starts the game in a room: the match, and for Touch the live match on the server's clock.
+  private begin(room: LiveRoom) {
+    const game = ONLINE_GAMES[room.game];
+    clearTimeout(room.startTimer);
+    room.startsAt = null;
+    room.status = "playing";
+    room.match = game.start(room.options);
+    if (game.realtime) this.touch.open(room._id, room.options as TouchOptions, null);
+    this.syncPeople(room);
+    this.scheduleTurn(room);
+  }
+
+  private fillWithComputers(room: LiveRoom) {
+    const label = ONLINE_GAMES[room.game].levels.normal?.label ?? "Normal";
+    room.seats = room.seats.map((s) => (s.guestId || s.cpu ? s : { guestId: null, name: `Computer (${label})`, cpu: true, level: "normal" }));
+  }
+
+  // A public room of the game that is waiting for players and has a free seat. The guest's own room comes first
+  // (they pressed Quick match again, or came back), then the one with the most people, so rooms fill up.
+  private openPublic(game: RoomView["game"], guestId: string, skip: Set<string>): LiveRoom | null {
+    const realtime = ONLINE_GAMES[game].realtime;
+    const mine = (r: LiveRoom) => Number(r.seats.some((s) => s.guestId === guestId));
+    const people = (r: LiveRoom) => r.seats.filter((s) => s.guestId).length;
+    const open = [...this.live.values()].filter((r) =>
+      r.public && r.game === game && !skip.has(r._id) && r.status === (realtime ? "playing" : "lobby")
+      && r.seats.some((s) => s.guestId === guestId || (!s.guestId && !s.cpu)));
+    open.sort((a, b) => mine(b) - mine(a) || people(b) - people(a));
+    return open[0] ?? null;
+  }
+
+  // After a quick-match lobby changes: a full room starts now; with two or more players the countdown runs (and
+  // then starts the game with computer players in the empty seats); with fewer it stops.
+  private quickCheck(room: LiveRoom) {
+    if (!room.public || room.status !== "lobby") return;
+    if (room.seats.every((s) => s.guestId)) { this.begin(room); return; }
+    if (room.seats.filter((s) => s.guestId).length < 2) {
+      clearTimeout(room.startTimer);
+      room.startsAt = null;
+      return;
+    }
+    if (room.startsAt) return;
+    const wait = QUICK_START_SECONDS * 1000 * this.config.timeScale;
+    room.startsAt = Date.now() + wait;
+    room.startTimer = setTimeout(() => void this.run(room._id, async (current) => {
+      if (!current.public || current.status !== "lobby" || current.seats.filter((s) => s.guestId).length < 2) return;
+      this.fillWithComputers(current);
+      this.begin(current);
+      await this.save(current);
+    }).catch((error) => console.error(`Starting quick-match room ${room._id} failed:`, error)), wait);
+  }
+
+  // A guest leaves the room, or (in a quick-match room) stayed away too long. In the lobby their seat is freed;
+  // during a game a computer player takes it over so the others can play on. The host's role passes to another
+  // player, and a room with nobody left is closed.
+  private async removeGuest(room: LiveRoom, guestId: string) {
+    const seat = room.seats.findIndex((s) => s.guestId === guestId);
+    room.connections.delete(guestId);
+    this.stopAwayTimer(room, guestId);
+    if (seat >= 0) {
+      // In a real-time game the computer plays every free seat anyway, so the seat stays open for someone new.
+      const freed = room.status === "lobby" || ONLINE_GAMES[room.game].realtime;
+      room.seats[seat] = freed ? emptySeat() : { guestId: null, name: `${room.seats[seat].name} (CPU)`, cpu: true, level: "normal" };
+    }
+    const humans = room.seats.filter((s) => s.guestId);
+    if (!humans.length && !room.party) { await this.close(room); return; }
+    if (room.hostId === guestId) room.hostId = humans[0].guestId!;
+    this.quickCheck(room);
+    this.scheduleTurn(room);
+    this.syncPeople(room);
+    await this.save(room);
+  }
+
+  // Strangers should not be kept waiting for someone who has gone: in a quick-match room, a player whose every
+  // connection has closed gives up their seat (to a computer player, mid-game) unless they are back within the away
+  // time. Friends' rooms keep the seat for as long as the room lasts.
+  private startAwayTimer(room: LiveRoom, guestId: string) {
+    if (!room.public || !room.seats.some((s) => s.guestId === guestId)) return;
+    this.stopAwayTimer(room, guestId);
+    room.awayTimers ??= new Map();
+    room.awayTimers.set(guestId, setTimeout(() => void this.run(room._id, async (current) => {
+      current.awayTimers?.delete(guestId);
+      if (current.status === "closed" || this.connected(current, guestId) || !current.seats.some((s) => s.guestId === guestId)) return;
+      await this.removeGuest(current, guestId);
+    }).catch((error) => console.error(`Freeing a seat in room ${room._id} failed:`, error)), this.config.awaySeconds * 1000 * this.config.timeScale));
+  }
+
+  private stopAwayTimer(room: LiveRoom, guestId: string) {
+    clearTimeout(room.awayTimers?.get(guestId));
+    room.awayTimers?.delete(guestId);
+  }
+
+  private stopTimers(room: LiveRoom) {
+    clearTimeout(room.turnTimer);
+    clearTimeout(room.startTimer);
+    for (const timer of room.awayTimers?.values() ?? []) clearTimeout(timer);
+    room.awayTimers?.clear();
+  }
 
   // Tells a real-time match who is playing: guests in a seat with the room open. It sends everyone a fresh frame.
   private syncPeople(room: LiveRoom) {
@@ -350,6 +483,7 @@ export class RoomsService implements OnApplicationShutdown {
   }
 
   private hostInLobby(room: LiveRoom, guest: GuestRef) {
+    if (room.public) throw new RoomError("Quick-match rooms use the standard settings and start on their own.");
     if (room.hostId !== guest.guestId) throw new RoomError("Only the host can do that.");
     if (room.status !== "lobby") throw new RoomError("The game has already started.");
   }
@@ -378,7 +512,7 @@ export class RoomsService implements OnApplicationShutdown {
       loading = (async () => {
         const saved = await this.models.rooms.findById(key).lean();
         if (!saved) throw new RoomError("There is no room with that code. Check it, or ask the host for a new one.");
-        const room: LiveRoom = { ...saved, party: saved.party ?? false, options: saved.options ?? ONLINE_GAMES[saved.game].defaultOptions, connections: new Map(), queue: Promise.resolve() };
+        const room: LiveRoom = { ...saved, party: saved.party ?? false, public: saved.public ?? false, options: saved.options ?? ONLINE_GAMES[saved.game].defaultOptions, connections: new Map(), queue: Promise.resolve() };
         this.live.set(key, room);
         if (room.status === "playing" && ONLINE_GAMES[room.game].realtime) this.touch.open(key, room.options as TouchOptions, room.match as TouchSummary);
         this.scheduleTurn(room);
@@ -395,7 +529,7 @@ export class RoomsService implements OnApplicationShutdown {
     room.updatedAt = now;
     room.expiresAt = new Date(now.getTime() + this.config.roomHours * 3600_000);
     const doc: RoomDoc = {
-      _id: room._id, game: room.game, hostId: room.hostId, seats: room.seats, status: room.status, party: room.party, options: room.options, match: room.match,
+      _id: room._id, game: room.game, hostId: room.hostId, seats: room.seats, status: room.status, party: room.party, public: room.public, options: room.options, match: room.match,
       version: room.version, createdAt: room.createdAt, updatedAt: room.updatedAt, expiresAt: room.expiresAt,
     };
     await this.models.rooms.replaceOne({ _id: room._id }, doc, { upsert: true });
@@ -404,7 +538,7 @@ export class RoomsService implements OnApplicationShutdown {
 
   // Ends a room: everyone still in it is told it has closed, and it is deleted.
   private async close(room: LiveRoom) {
-    clearTimeout(room.turnTimer);
+    this.stopTimers(room);
     this.touch.close(room._id);
     room.status = "closed";
     this.emit(room);

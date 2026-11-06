@@ -280,7 +280,7 @@ function LiveSection({ live, elapsed }: { live: LiveView | null; elapsed: number
       <div className="admin-table-wrap"><table className="admin-table">
         <thead><tr><th>Room</th><th>Game</th><th>Status</th><th className="num">People</th><th className="num">Computers</th><th className="num">Last change</th></tr></thead>
         <tbody>{live.rooms.map((r) => <tr key={r.code}>
-          <td className="mono">{r.code}{r.party && <small className="admin-muted"> · party</small>}</td>
+          <td className="mono">{r.code}{r.party && <small className="admin-muted"> · party</small>}{r.public && <small className="admin-muted"> · quick match</small>}</td>
           <td>{gameName(pageOfGame(r.game))}</td>
           <td>{r.status === "playing" ? "Playing" : "In the lobby"}</td>
           <td className="num">{r.people}</td>

@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
-import { cleanName, type Guest } from "@salone/games/online/protocol";
+import { filterName } from "@salone/games/online/chat";
+import type { Guest } from "@salone/games/online/protocol";
 import { MODELS, type Models } from "./database";
 
 const hash = (token: string) => createHash("sha256").update(token).digest("hex");
@@ -13,9 +14,9 @@ export class GuestsService {
   constructor(@Inject(MODELS) private readonly models: Models) {}
 
   // Returns the guest a device already has (when its id and token match), or a new guest. The name is updated
-  // either way.
+  // either way, filtered like chat (everyone in a room sees it).
   async hello(input: { guestId?: unknown; token?: unknown; name?: unknown }): Promise<Guest> {
-    const name = cleanName(input.name);
+    const name = filterName(input.name);
     const now = new Date();
     if (typeof input.guestId === "string" && typeof input.token === "string") {
       const known = await this.models.players.findById(input.guestId).lean();

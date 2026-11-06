@@ -156,13 +156,16 @@ export function RoomChat({ room, me, online, placement = "bottom" }: Props) {
                 {QUICK_PHRASES.map((p) => <button key={p} disabled={sending} onClick={() => void post(p)}>{p}</button>)}
               </div>
               {problem && <p className="room-chat-problem" role="alert">{problem}</p>}
-              <form className="room-chat-form" onSubmit={submit}>
+              {/* Quick-match rooms put strangers together: one-tap messages only (the server checks this too). */}
+              {!room.public && <form className="room-chat-form" onSubmit={submit}>
                 <input value={text} maxLength={MAX_CHAT} onChange={(e) => setText(e.target.value)} onKeyDown={keepKeys} onKeyUp={(e) => e.stopPropagation()}
                   placeholder="Type a message…" aria-label="Message" autoComplete="off" enterKeyHint="send" />
                 <button type="submit" disabled={sending || !text.trim()}>SEND</button>
-              </form>
+              </form>}
             </>}
-          <p className="room-chat-note">Be kind. Links and phone numbers are hidden. Chat is not saved unless someone reports it. Someone bothering you? Tap PLAYERS to mute or report them.</p>
+          <p className="room-chat-note">{room.public
+            ? "Quick match puts you with players you may not know, so chat is quick messages only. Someone bothering you? Tap PLAYERS to mute or report them."
+            : "Be kind. Links and phone numbers are hidden. Chat is not saved unless someone reports it. Someone bothering you? Tap PLAYERS to mute or report them."}</p>
         </>}
     </section>}
     <button className="room-chat-toggle" onClick={toggle} aria-expanded={open} aria-label={unread ? `Chat, ${unread} unread` : "Chat"}>

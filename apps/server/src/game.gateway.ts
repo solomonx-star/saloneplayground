@@ -86,6 +86,20 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     });
   }
 
+  // Quick match: a public room of the game, found or opened by the server.
+  @SubscribeMessage(EVENTS.quick)
+  quick(@ConnectedSocket() socket: Socket, @MessageBody() body: Body) {
+    return reply(async () => {
+      const guest = this.guest(socket);
+      await this.leaveRoom(socket);
+      const view = await this.rooms.quick(guest, body?.game, socket.id);
+      await this.enter(socket, view.code);
+      const frame = this.rooms.frame(view.code);
+      if (frame) socket.emit(EVENTS.frame, frame);
+      return view;
+    });
+  }
+
   @SubscribeMessage(EVENTS.join)
   join(@ConnectedSocket() socket: Socket, @MessageBody() body: Body) {
     return reply(async () => {
@@ -149,13 +163,14 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     if (guest) this.rooms.input(guest.guestId, code, body?.input);
   }
 
-  // A chat message from a seated player: filtered, then sent to everyone in the room (the sender included).
+  // A chat message from a seated player: filtered, then sent to everyone in the room (the sender included). In a
+  // quick-match room only the quick phrases and emoji are allowed.
   @SubscribeMessage(EVENTS.chatSend)
   sendChat(@ConnectedSocket() socket: Socket, @MessageBody() body: Body) {
     return reply(async () => {
       const { code } = this.data(socket);
       const sender = this.rooms.chatSender(this.guest(socket).guestId, code);
-      const message = this.chat.post(code!, sender, body?.text);
+      const message = this.chat.post(code!, sender, body?.text, this.rooms.isPublic(code));
       this.server.to(code!).emit(EVENTS.chat, message);
       return message;
     });
