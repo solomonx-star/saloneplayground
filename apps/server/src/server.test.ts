@@ -787,6 +787,29 @@ describe("admin dashboard", () => {
     expect(stats.totals.newPlayers).toBeGreaterThanOrEqual(1);
   });
 
+  it("shows players' ping and the server's round trip to the database, and keeps each session's ping for the statistics", async () => {
+    const screen = io(url, { transports: ["websocket"], forceNew: true, reconnection: false });
+    sockets.push(screen);
+    await new Promise<void>((r) => screen.once("connect", () => r()));
+    const visitorId = "visitor-ping-test-1";
+    screen.emit(EVENTS.presence, { visitorId, name: "Ping", game: "snakes-and-ladders", mode: "cpu", playing: true });
+    await live((v) => v.people.some((p) => p.visitorId === visitorId));
+    // The answer comes straight back; each ping carries the time the screen measured last. Nonsense is ignored.
+    for (const lastMs of [null, 180, 900, 140, -5, "fast", 160]) expect(await screen.timeout(5000).emitWithAck(EVENTS.ping, { lastMs })).toBe(true);
+    const view = await live((v) => v.people.find((p) => p.visitorId === visitorId)?.pingMs != null);
+    // 140, 160, 180 and 900 ms: the lower middle value (one slow reading does not move it).
+    expect(view.people.find((p) => p.visitorId === visitorId)?.pingMs).toBe(160);
+    expect(view.latency.measured).toBeGreaterThanOrEqual(1);
+    expect(view.latency.databaseMs).toEqual(expect.any(Number));
+
+    await new Promise((r) => setTimeout(r, 100));
+    screen.disconnect();
+    await live((v) => !v.people.some((p) => p.visitorId === visitorId));
+    const stats = (await (await admin("stats?days=1")).json()) as StatsView;
+    expect(stats.ping.sessions).toBeGreaterThanOrEqual(1);
+    expect(stats.ping.medianMs).toEqual(expect.any(Number));
+  });
+
   it("pushes the live view to a signed-in dashboard as it changes, and says when a session ends", async () => {
     const dashboard = io(url, { transports: ["websocket"], forceNew: true, reconnection: false });
     sockets.push(dashboard);

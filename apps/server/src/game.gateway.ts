@@ -199,6 +199,13 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     try { await this.presence.report(socket.id, report); } catch (error) { console.error(error); }
   }
 
+  // A screen timing its round trip to the server: answered at once (no database), with the time it measured last.
+  @SubscribeMessage(EVENTS.ping)
+  ping(@ConnectedSocket() socket: Socket, @MessageBody() body: Body) {
+    this.presence.ping(socket.id, body?.lastMs);
+    return true;
+  }
+
   // An admin dashboard signs in with the admin token; it then gets the live view now and whenever it changes.
   @SubscribeMessage(EVENTS.adminWatch)
   watchAsAdmin(@ConnectedSocket() socket: Socket, @MessageBody() body: Body) {

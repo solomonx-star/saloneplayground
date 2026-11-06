@@ -1,10 +1,10 @@
 import { Inject, Injectable, type BeforeApplicationShutdown } from "@nestjs/common";
-import type { LivePerson, PresenceReport } from "@salone/games/online/admin";
+import { cleanPing, median, PING_SAMPLES, type LivePerson, type PresenceReport } from "@salone/games/online/admin";
 import { CONFIG, type Config } from "./config";
 import { MODELS, type Models } from "./database";
 
-// One open screen: what it last reported, and when its current game session began.
-type Screen = PresenceReport & { connectedAt: number; sessionStart: number | null };
+// One open screen: what it last reported, when its current game session began, and its latest round-trip times.
+type Screen = PresenceReport & { connectedAt: number; sessionStart: number | null; pings: number[] };
 
 // Sessions shorter than this (opening a game and leaving straight away) are not recorded. Scaled by timeScale.
 const MIN_SESSION_SECONDS = 5;
@@ -30,7 +30,7 @@ export class PresenceService implements BeforeApplicationShutdown {
     const same = before && before.game === report.game && before.mode === report.mode && before.playing === report.playing;
     const sessionStart = report.playing ? (same ? before.sessionStart : now) : null;
     // The live picture changes first, so reports arriving close together are handled in order.
-    this.screens.set(socketId, { ...report, connectedAt: before?.connectedAt ?? now, sessionStart });
+    this.screens.set(socketId, { ...report, connectedAt: before?.connectedAt ?? now, sessionStart, pings: before?.pings ?? [] });
     if (!same) this.changed();
     await Promise.all([
       before?.playing && !same ? this.endSession(before, now) : null,
@@ -40,6 +40,15 @@ export class PresenceService implements BeforeApplicationShutdown {
         { upsert: true },
       ),
     ]);
+  }
+
+  // A round-trip time a screen measured. Kept in memory only; a session saves its median when it ends.
+  ping(socketId: string, ms: unknown) {
+    const screen = this.screens.get(socketId);
+    const value = cleanPing(ms);
+    if (!screen || value === null) return;
+    screen.pings = [...screen.pings, value].slice(-PING_SAMPLES);
+    this.changed();
   }
 
   async disconnected(socketId: string, now = Date.now()) {
@@ -63,11 +72,12 @@ export class PresenceService implements BeforeApplicationShutdown {
         onlineSeconds: Math.round((now - screen.connectedAt) / 1000),
         playingSeconds: screen.sessionStart ? Math.round((now - screen.sessionStart) / 1000) : 0,
         screens: 1,
+        pingMs: median(screen.pings),
       };
       const known = people.get(screen.visitorId);
       if (!known) { people.set(screen.visitorId, row); continue; }
       const keep = known.playing || !row.playing ? known : row;
-      people.set(screen.visitorId, { ...keep, screens: known.screens + 1, onlineSeconds: Math.max(known.onlineSeconds, row.onlineSeconds) });
+      people.set(screen.visitorId, { ...keep, screens: known.screens + 1, onlineSeconds: Math.max(known.onlineSeconds, row.onlineSeconds), pingMs: keep.pingMs ?? known.pingMs ?? row.pingMs });
     }
     return [...people.values()].sort((a, b) => Number(b.playing) - Number(a.playing) || b.playingSeconds - a.playingSeconds || b.onlineSeconds - a.onlineSeconds);
   }
@@ -94,6 +104,7 @@ export class PresenceService implements BeforeApplicationShutdown {
       startedAt: new Date(screen.sessionStart),
       endedAt: new Date(now),
       seconds,
+      pingMs: median(screen.pings),
     });
     for (const listener of this.sessionListeners) listener();
   }

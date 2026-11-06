@@ -260,18 +260,22 @@ function LiveSection({ live, elapsed }: { live: LiveView | null; elapsed: number
       <Tile label="Playing now" value={String(live.playing)} />
       <Tile label="Browsing" value={String(live.online - live.playing)} />
       <Tile label="Open rooms" value={String(live.rooms.length)} />
+      {/* Optional: a game server older than this page sends no latency. */}
+      {live.latency && <Tile label="Players' ping" value={ms(live.latency.players)} note={live.latency.measured ? `slowest tenth ${ms(live.latency.slowest)} · ${live.latency.measured} measured` : "Nobody measured yet"} />}
+      {live.latency && <Tile label="Server to database" value={ms(live.latency.databaseMs)} note="Paid on every move" />}
     </div>
     {games.length > 0 && <div className="admin-chips" aria-label="Playing now by game">{games.map(([game, n]) => <span key={game}>{gameName(game)} <b>{n}</b></span>)}</div>}
     <div className="admin-card">
       <h3>Players online</h3>
       {live.people.length === 0 ? <p className="admin-muted">Nobody is online right now.</p> : <div className="admin-table-wrap"><table className="admin-table">
-        <thead><tr><th>Player</th><th>Doing</th><th>Mode</th><th className="num">Playing for</th><th className="num">Online for</th></tr></thead>
+        <thead><tr><th>Player</th><th>Doing</th><th>Mode</th><th className="num">Playing for</th><th className="num">Online for</th><th className="num">Ping</th></tr></thead>
         <tbody>{live.people.map((p) => <tr key={p.visitorId}>
           <td>{who(p.name, p.visitorId)}{p.screens > 1 && <small className="admin-muted"> · {p.screens} screens</small>}</td>
           <td><span className={`admin-status ${p.playing ? "playing" : ""}`}>{p.playing ? "Playing" : p.game ? "Setting up" : "Browsing"}</span> {gameName(p.game)}</td>
           <td>{p.game ? modeName(p.mode) : "—"}</td>
           <td className="num">{p.playing ? duration(p.playingSeconds + elapsed) : "—"}</td>
           <td className="num">{duration(p.onlineSeconds + elapsed)}</td>
+          <td className="num">{ms(p.pingMs ?? null)}</td>
         </tr>)}</tbody>
       </table></div>}
     </div>
@@ -302,6 +306,7 @@ function Stats({ stats }: { stats: StatsView }) {
       <Tile label="Game sessions" value={String(totals.sessions)} />
       <Tile label="Average session" value={totals.sessions ? duration(totals.seconds / totals.sessions) : "—"} />
       <Tile label="Online matches finished" value={String(totals.matches)} />
+      {stats.ping && <Tile label="Typical ping" value={ms(stats.ping.medianMs)} note={stats.ping.sessions ? `median of ${stats.ping.sessions} session${stats.ping.sessions === 1 ? "" : "s"}` : "No sessions measured yet"} />}
     </div>
     {stats.days > 1 && <div className="admin-grid-2">
       <DayChart title="Play time per day" days={stats.daily} value={(d) => d.seconds} format={(d) => duration(d.seconds)} axis={(v) => (v >= 60 ? duration(Math.round(v / 60) * 60).replace(/ 0s$/, "") : duration(v))} />
@@ -358,6 +363,9 @@ function Stats({ stats }: { stats: StatsView }) {
     <p className="admin-muted admin-footnote">Statistics count game sessions once they end; games still in progress show under Live now. Days are in GMT.</p>
   </>;
 }
+
+// A round-trip time for the dashboard.
+function ms(value: number | null) { return value === null ? "—" : `${value} ms`; }
 
 function Tile({ label, value, note }: { label: string; value: string; note?: string }) {
   return <div className="admin-tile"><small>{label}</small><strong>{value}</strong>{note && <span>{note}</span>}</div>;

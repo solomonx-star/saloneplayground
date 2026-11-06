@@ -41,6 +41,7 @@ The game server (for online play) needs a MongoDB database. Copy `apps/server/.e
 - Each WebSocket connection is compressed as a stream (permessage-deflate; settings in `apps/server/src/setup.ts`), so messages that repeat much of the previous one cost little. Measured with scripted players: Touch about 95 KB a minute per player on the wire (651 KB before compression), Snakes and Ladders about 30 KB, Draft about 12 KB, Ludo about 10 KB, Tin Tan To about 2 KB.
 - Screens say `lean: true` in their hello: a change they ask for is answered with only the room's version, since the room arrives as an update anyway. Screens without it (opened before an update) still get the whole room.
 - Screens fall back to plain HTTP requests where WebSockets are blocked, reconnect as soon as the device is back online or the screen is shown again, and heartbeats notice a dropped connection within about 20 seconds.
+- The admin dashboard shows players' **ping** (each screen times a tiny round trip to the game server every 30 seconds while shown) and the game server's own round trip to its database, live and per day range; see DEPLOY.md, *Region and latency*.
 - The admin dashboard's **Data use** section shows what each game sends and receives per player-minute (before compression), counted on the game server (`apps/server/src/traffic.service.ts`).
 
 ## Party play (version 2)

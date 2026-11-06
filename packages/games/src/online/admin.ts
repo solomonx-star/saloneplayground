@@ -19,6 +19,27 @@ export function cleanPresence(input: unknown): PresenceReport | null {
   return { visitorId: value.visitorId, name, game, mode: game ? word(value.mode) : null, playing: !!game && value.playing === true };
 }
 
+// ---- Ping ----
+
+// Every screen times a tiny round trip to the game server (EVENTS.ping) this often while it is shown, and sends the
+// time it measured with the next one. The server keeps each screen's last PING_SAMPLES and shows their median: the
+// delay a player feels on every move, from their phone through the mobile network to the server and back.
+export const PING_EVERY_MS = 30_000;
+export const PING_SAMPLES = 5;
+
+// A round-trip time from a screen, in whole milliseconds; null when it does not make sense.
+export function cleanPing(input: unknown): number | null {
+  return typeof input === "number" && Number.isFinite(input) && input > 0 && input < 60_000 ? Math.round(input) : null;
+}
+
+// The middle value (null for none), and the value 90% of the list are at or below.
+export function median(values: number[]): number | null { return percentile(values, 0.5); }
+export function percentile(values: number[], share: number): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.ceil(share * sorted.length) - 1)];
+}
+
 // ---- The dashboard's data ----
 
 export type LivePerson = {
@@ -32,11 +53,18 @@ export type LivePerson = {
   playingSeconds: number;
   // Open screens (tabs or devices sharing the id).
   screens: number;
+  // The device's typical round trip to the game server, in milliseconds (null until measured).
+  pingMs: number | null;
 };
+
+// How long things take to answer, in milliseconds: players' round trips to the game server (the median and the
+// slowest tenth across the people online now, and how many have been measured), and the game server's own round
+// trip to its database, which it makes on every move.
+export type Latency = { players: number | null; slowest: number | null; measured: number; databaseMs: number | null };
 
 export type LiveRoom = { code: string; game: string; status: string; party: boolean; public: boolean; people: number; computers: number; updatedAt: string };
 
-export type LiveView = { at: string; online: number; playing: number; people: LivePerson[]; rooms: LiveRoom[] };
+export type LiveView = { at: string; online: number; playing: number; people: LivePerson[]; rooms: LiveRoom[]; latency: Latency };
 
 export type GameStat = { game: string; sessions: number; players: number; seconds: number; matches: number };
 export type DayStat = { day: string; sessions: number; players: number; seconds: number };
@@ -47,6 +75,9 @@ export type StatsView = {
   days: number;
   since: string;
   totals: { sessions: number; players: number; seconds: number; newPlayers: number; allTimePlayers: number; matches: number };
+  // Players' typical round trip to the game server over the period: the median of the sessions that measured one
+  // (each session keeps its device's median), and how many did. For comparing before and after a change of hosting.
+  ping: { medianMs: number | null; sessions: number };
   games: GameStat[];
   daily: DayStat[];
   modes: { mode: string; sessions: number; seconds: number }[];

@@ -36,7 +36,8 @@ export type RoomDoc = {
 };
 export type MatchDoc = { room: string; game: GameId; seats: SeatDoc[]; match: unknown; finishedAt: Date };
 
-export type SessionDoc = { visitorId: string; name: string; game: string; mode: string | null; startedAt: Date; endedAt: Date; seconds: number };
+// `pingMs`: the device's typical round trip to the game server during the session (null when not measured).
+export type SessionDoc = { visitorId: string; name: string; game: string; mode: string | null; startedAt: Date; endedAt: Date; seconds: number; pingMs: number | null };
 export type VisitorDoc = { _id: string; name: string; firstSeenAt: Date; lastSeenAt: Date };
 
 export type ReportDoc = {
@@ -92,6 +93,7 @@ const sessions = new Schema<SessionDoc>({
   name: String,
   game: String,
   mode: { type: String, default: null },
+  pingMs: { type: Number, default: null },
   startedAt: Date,
   endedAt: { type: Date, index: true },
   seconds: Number,

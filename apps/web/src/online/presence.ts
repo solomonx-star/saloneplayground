@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { io, type Socket } from "socket.io-client";
-import type { PresenceReport } from "@salone/games/online/admin";
+import { PING_EVERY_MS, type PresenceReport } from "@salone/games/online/admin";
 import { EVENTS, type Guest } from "@salone/games/online/protocol";
 import { connectOptions, reconnectWhenBack, serverUrl } from "@/online/useRoom";
 
@@ -46,12 +46,26 @@ function send() {
   socket.emit(EVENTS.presence, report);
 }
 
+// Times a round trip to the game server and sends the time measured last (see PING_EVERY_MS). Only while the screen
+// is shown: a hidden tab's timers are slowed down, which would make the network look slower than it is.
+let lastPing: number | null = null;
+async function ping() {
+  if (!socket?.connected || document.visibilityState !== "visible") return;
+  const start = performance.now();
+  try {
+    await socket.timeout(10_000).emitWithAck(EVENTS.ping, { lastMs: lastPing });
+    lastPing = performance.now() - start;
+  } catch { /* No answer in time: try again next time. */ }
+}
+
 function connect() {
   if (socket) return;
   socket = io(serverUrl(), connectOptions(10000));
   reconnectWhenBack(socket);
-  socket.on("connect", send);
+  // Soon after connecting (after the report, so the server knows the screen), then now and then.
+  socket.on("connect", () => { send(); setTimeout(() => void ping().then(ping), 2000); });
   document.addEventListener("visibilitychange", send);
+  setInterval(() => void ping(), PING_EVERY_MS);
 }
 
 // Reports this screen: `game` is the game's page name (null on the shelf), `mode` how it is played, and `playing`

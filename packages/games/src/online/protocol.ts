@@ -66,6 +66,8 @@ export const EVENTS = {
   frame: "game:frame",
   // Every screen reports what it is showing, for the admin dashboard: no reply.
   presence: "presence:update",
+  // Every screen times this round trip now and then, sending the time it measured last (see PING_EVERY_MS in admin.ts).
+  ping: "presence:ping",
   // Room chat (see chat.ts): a seated player sends a message; everyone in the room gets each message, and a screen
   // entering a room gets the recent ones.
   chatSend: "chat:send",
